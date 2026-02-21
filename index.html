@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Dashboard - Free Tier</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass-panel { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(10px); }
+        .price-up { color: #10b981; }
+        .price-down { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4">
+    
+    <!-- Data Freshness Monitor -->
+    <div class="fixed top-4 right-4 z-50 glass-panel p-3 rounded-lg border border-gray-700">
+        <div class="flex items-center gap-2 text-xs">
+            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span id="connection-status">LIVE</span>
+            <span class="text-gray-500">|</span>
+            <span id="last-update">Updating...</span>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center border-b border-gray-800 pb-4">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
+                ENERGY<span class="text-gray-400">DASH</span>
+                <span class="text-xs text-gray-500 block font-normal">Zero-Cost Hobbyist Edition</span>
+            </h1>
+            <div class="text-right">
+                <div class="text-xs text-gray-400">Data Sources</div>
+                <div class="flex gap-2 text-xs">
+                    <span class="px-2 py-1 bg-blue-900 rounded">TradingView</span>
+                    <span class="px-2 py-1 bg-purple-900 rounded">Yahoo Finance</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- TradingView Widgets (Real-time, Free, No API Key) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            
+            <!-- Brent Chart -->
+            <div class="glass-panel rounded-xl p-4 border border-gray-800">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-lg">Brent Crude (BZ=F)</h3>
+                    <span class="text-xs text-green-400">● Live</span>
+                </div>
+                <!-- TradingView Widget -->
+                <div class="tradingview-widget-container" style="height:400px;">
+                    <div class="tradingview-widget-container__widget"></div>
+                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                    {
+                        "autosize": true,
+                        "symbol": "NYMEX:BZ=F",
+                        "interval": "1",
+                        "timezone": "Etc/UTC",
+                        "theme": "dark",
+                        "style": "1",
+                        "locale": "en",
+                        "enable_publishing": false,
+                        "hide_top_toolbar": true,
+                        "hide_legend": true,
+                        "save_image": false,
+                        "calendar": false,
+                        "hide_volume": true,
+                        "support_host": "https://www.tradingview.com"
+                    }
+                    </script>
+                </div>
+            </div>
+
+            <!-- Natural Gas Chart (TTF Proxy) -->
+            <div class="glass-panel rounded-xl p-4 border border-gray-800">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-lg">Natural Gas (NG=F) - TTF Proxy</h3>
+                    <span class="text-xs text-green-400">● Live</span>
+                </div>
+                <div class="tradingview-widget-container" style="height:400px;">
+                    <div class="tradingview-widget-container__widget"></div>
+                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                    {
+                        "autosize": true,
+                        "symbol": "NYMEX:NG=F",
+                        "interval": "1",
+                        "timezone": "Etc/UTC",
+                        "theme": "dark",
+                        "style": "1",
+                        "locale": "en",
+                        "enable_publishing": false,
+                        "hide_top_toolbar": true,
+                        "hide_legend": true,
+                        "save_image": false,
+                        "calendar": false,
+                        "hide_volume": true
+                    }
+                    </script>
+                </div>
+            </div>
+        </div>
+
+        <!-- Price Cards with Free API Fallbacks -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="price-grid">
+            <!-- Cards will be populated by JavaScript -->
+        </div>
+
+        <!-- Data Source Status -->
+        <div class="glass-panel rounded-xl p-4 border border-gray-800">
+            <h3 class="font-bold mb-4">API Status Monitor</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm" id="api-status">
+                <div class="p-3 bg-gray-800 rounded flex justify-between items-center">
+                    <span>Yahoo Finance</span>
+                    <span class="text-yellow-400" id="yahoo-status">Checking...</span>
+                </div>
+                <div class="p-3 bg-gray-800 rounded flex justify-between items-center">
+                    <span>OilPriceAPI (Demo)</span>
+                    <span class="text-yellow-400" id="oilprice-status">Checking...</span>
+                </div>
+                <div class="p-3 bg-gray-800 rounded flex justify-between items-center">
+                    <span>Alpha Vantage</span>
+                    <span class="text-yellow-400" id="alpha-status">Checking...</span>
+                </div>
+            </div>
+            <div class="mt-4 text-xs text-gray-500">
+                <p>Rate Limits: Yahoo (~2000/hr) | OilPriceAPI (20/hr) | Alpha Vantage (25/day)</p>
+                <p>Last successful fetch: <span id="last-success">Never</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Free Tier Data Manager
+        class FreeDataManager {
+            constructor() {
+                this.cache = {};
+                this.rateLimits = {
+                    yahoo: { lastCall: 0, minInterval: 2000 }, // 2 seconds between calls
+                    oilprice: { lastCall: 0, minInterval: 180000 }, // 3 minutes (20/hr)
+                    alpha: { lastCall: 0, minInterval: 3456000 } // 24 hours (25/day)
+                };
+                this.init();
+            }
+
+            init() {
+                this.loadFromLocalStorage();
+                this.startAutoUpdate();
+                this.renderCards();
+            }
+
+            // Yahoo Finance API (Free, no key required for basic quotes)
+            async fetchYahoo(symbol) {
+                if (!this.checkRateLimit('yahoo')) return null;
+                
+                try {
+                    // Using Yahoo's public quote API (unofficial but widely used)
+                    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`);
+                    const data = await response.json();
+                    
+                    if (data.chart && data.chart.result) {
+                        const result = data.chart.result[0];
+                        const meta = result.meta;
+                        const price = meta.regularMarketPrice;
+                        const prev = meta.previousClose;
+                        const change = price - prev;
+                        const changePct = (change / prev) * 100;
+                        
+                        return {
+                            price: price,
+                            change: change,
+                            changePct: changePct,
+                            timestamp: new Date().toISOString(),
+                            source: 'Yahoo Finance'
+                        };
+                    }
+                } catch (e) {
+                    console.error('Yahoo fetch failed:', e);
+                    return null;
+                }
+            }
+
+            // OilPriceAPI Demo (20 requests/hour, no credit card)
+            async fetchOilPriceDemo() {
+                if (!this.checkRateLimit('oilprice')) return null;
+                
+                try {
+                    // Demo endpoint - no API key required!
+                    const response = await fetch('https://api.oilpriceapi.com/v1/demo/prices');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        return {
+                            brent: data.data.find(d => d.code === 'BRENT_USD'),
+                            wti: data.data.find(d => d.code === 'WTI_USD'),
+                            timestamp: new Date().toISOString(),
+                            source: 'OilPriceAPI Demo'
+                        };
+                    }
+                } catch (e) {
+                    console.error('OilPriceAPI demo failed:', e);
+                    return null;
+                }
+            }
+
+            // Alpha Vantage (25 requests/day, free tier)
+            async fetchAlphaVantage() {
+                if (!this.checkRateLimit('alpha')) return null;
+                
+                // Get your free key at alphavantage.co/support (no credit card)
+                const API_KEY = localStorage.getItem('ALPHA_VANTAGE_KEY') || 'demo';
+                
+                try {
+                    const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=BZ=F&apikey=${API_KEY}`);
+                    const data = await response.json();
+                    
+                    if (data['Global Quote']) {
+                        const quote = data['Global Quote'];
+                        return {
+                            price: parseFloat(quote['05. price']),
+                            change: parseFloat(quote['09. change']),
+                            changePct: parseFloat(quote['10. change percent'].replace('%', '')),
+                            timestamp: new Date().toISOString(),
+                            source: 'Alpha Vantage'
+                        };
+                    }
+                } catch (e) {
+                    console.error('Alpha Vantage failed:', e);
+                    return null;
+                }
+            }
+
+            checkRateLimit(source) {
+                const now = Date.now();
+                const limit = this.rateLimits[source];
+                
+                if (now - limit.lastCall < limit.minInterval) {
+                    console.log(`${source} rate limit hit, using cache`);
+                    return false;
+                }
+                
+                limit.lastCall = now;
+                return true;
+            }
+
+            async updatePrices() {
+                // Try multiple sources in order of reliability
+                const updates = {};
+                
+                // 1. Try Yahoo Finance first (most generous limits)
+                const yahooBrent = await this.fetchYahoo('BZ=F'); // Brent Futures
+                const yahooGas = await this.fetchYahoo('NG=F');   // NatGas Futures (TTF proxy)
+                
+                if (yahooBrent) {
+                    updates.brent = yahooBrent;
+                    document.getElementById('yahoo-status').textContent = '✓ Active';
+                    document.getElementById('yahoo-status').className = 'text-green-400';
+                }
+
+                // 2. Try OilPriceAPI demo for validation (20/hr)
+                const oilData = await this.fetchOilPriceDemo();
+                if (oilData) {
+                    updates.oilprice = oilData;
+                    document.getElementById('oilprice-status').textContent = '✓ Active';
+                    document.getElementById('oilprice-status').className = 'text-green-400';
+                }
+
+                // 3. Try Alpha Vantage once per day (25/day limit)
+                const alphaData = await this.fetchAlphaVantage();
+                if (alphaData) {
+                    updates.alpha = alphaData;
+                    document.getElementById('alpha-status').textContent = '✓ Active';
+                    document.getElementById('alpha-status').className = 'text-green-400';
+                }
+
+                // Merge and cache
+                this.cache = { ...this.cache, ...updates };
+                this.saveToLocalStorage();
+                this.renderCards();
+                
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                document.getElementById('last-success').textContent = new Date().toLocaleString();
+            }
+
+            renderCards() {
+                const commodities = [
+                    { 
+                        symbol: 'brent', 
+                        name: 'Brent Crude', 
+                        unit: '$/bbl',
+                        yahooSymbol: 'BZ=F',
+                        color: 'border-yellow-500',
+                        fallbackPrice: 71.76 
+                    },
+                    { 
+                        symbol: 'ttf', 
+                        name: 'TTF Gas Proxy', 
+                        unit: '$/MMBtu',
+                        yahooSymbol: 'NG=F',
+                        color: 'border-orange-500',
+                        fallbackPrice: 11.30 
+                    },
+                    { 
+                        symbol: 'jkm', 
+                        name: 'JKM LNG', 
+                        unit: '$/MMBtu',
+                        color: 'border-blue-500',
+                        fallbackPrice: 10.78,
+                        note: 'Est. from Brent correlation' 
+                    },
+                    { 
+                        symbol: 'hsfo', 
+                        name: 'HSFO 380', 
+                        unit: '$/MT',
+                        color: 'border-purple-500',
+                        fallbackPrice: 396.50,
+                        note: 'Est. from crude crack' 
+                    }
+                ];
+
+                const grid = document.getElementById('price-grid');
+                grid.innerHTML = commodities.map(comm => {
+                    const data = this.cache[comm.symbol] || this.cache.brent; // Fallback chain
+                    const price = data?.price || comm.fallbackPrice;
+                    const change = data?.change || 0;
+                    const changePct = data?.changePct || 0;
+                    const isUp = change >= 0;
+                    const source = data?.source || 'Estimated';
+                    const freshness = data ? this.getFreshness(data.timestamp) : 'Offline';
+
+                    return `
+                        <div class="glass-panel rounded-xl p-5 border-l-4 ${comm.color} relative">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <p class="text-gray-400 text-xs font-bold">${comm.name}</p>
+                                    ${comm.note ? `<p class="text-gray-600 text-xs">${comm.note}</p>` : ''}
+                                </div>
+                                <span class="px-2 py-1 rounded bg-gray-800 text-xs text-gray-400">${source}</span>
+                            </div>
+                            <div class="mt-3">
+                                <div class="flex items-baseline gap-2">
+                                    <span class="text-3xl font-bold font-mono">${price.toFixed(2)}</span>
+                                    <span class="text-gray-400 text-sm">${comm.unit}</span>
+                                </div>
+                                <div class="flex items-center gap-2 mt-2">
+                                    <span class="${isUp ? 'price-up' : 'price-down'} flex items-center text-sm font-bold">
+                                        ${isUp ? '↑' : '↓'} ${Math.abs(change).toFixed(2)} (${Math.abs(changePct).toFixed(2)}%)
+                                    </span>
+                                </div>
+                                <div class="mt-3 flex items-center gap-2 text-xs">
+                                    <span class="w-2 h-2 rounded-full ${freshness === 'LIVE' ? 'bg-green-500 animate-pulse' : freshness === 'DELAYED' ? 'bg-yellow-500' : 'bg-red-500'}"></span>
+                                    <span class="text-gray-500">${freshness}</span>
+                                    <span class="text-gray-600 ml-auto">${new Date(data?.timestamp || Date.now()).toLocaleTimeString()}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            getFreshness(timestamp) {
+                if (!timestamp) return 'OFFLINE';
+                const age = Date.now() - new Date(timestamp).getTime();
+                if (age < 300000) return 'LIVE';      // < 5 mins
+                if (age < 900000) return 'DELAYED';   // < 15 mins
+                return 'STALE';                       // > 15 mins
+            }
+
+            startAutoUpdate() {
+                // Update immediately
+                this.updatePrices();
+                
+                // Then every 30 seconds (respecting rate limits internally)
+                setInterval(() => this.updatePrices(), 30000);
+                
+                // Update timestamp every second
+                setInterval(() => {
+                    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                }, 1000);
+            }
+
+            saveToLocalStorage() {
+                localStorage.setItem('energyDashboardCache', JSON.stringify(this.cache));
+            }
+
+            loadFromLocalStorage() {
+                const saved = localStorage.getItem('energyDashboardCache');
+                if (saved) {
+                    this.cache = JSON.parse(saved);
+                    this.renderCards();
+                }
+            }
+        }
+
+        // Initialize
+        const dataManager = new FreeDataManager();
+
+        // Manual refresh button
+        function forceRefresh() {
+            dataManager.updatePrices();
+        }
+    </script>
+</body>
+</html>

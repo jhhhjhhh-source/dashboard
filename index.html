@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Alpha Terminal — Quant Dashboard</title>
+  <meta name="description" content="Equity, Commodity, Crypto & Asian Energy Quant Dashboard"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #070a12; }
+    body { overflow-x: hidden; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    #root { min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+const { AreaChart, Area, LineChart, Line, BarChart, Bar, ComposedChart,
+  ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell } = Recharts;
+
+  AreaChart, Area, LineChart, Line, BarChart, Bar, ComposedChart,
+  ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell,
+} from "recharts";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DESIGN TOKENS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const C = {
+  bg:"#070a12", surface:"#0c1018", surfaceAlt:"#0e1420",
+  border:"rgba(255,255,255,0.07)", borderBright:"rgba(255,255,255,0.13)",
+  text:"#e2e6f0", muted:"rgba(255,255,255,0.38)", dim:"rgba(255,255,255,0.16)",
+  accent:"#00c8ff", gold:"#f5c842", green:"#00d97e", red:"#ff3c5a",
+  purple:"#a78bfa", orange:"#f97316", teal:"#2dd4bf",
+};
+const MONO = "'IBM Plex Mono', monospace";
+const SANS = "'Inter', sans-serif";
+const CAT_COLOR = { equity:"#00c8ff", commodity:"#f5c842", crypto:"#a78bfa" };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SEEDED PRICES — Feb 22 2026 actuals
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const ASSETS = [
+  {id:"SPY", cat:"equity",    name:"S&P 500 ETF",      price:599.15,  dow: 0.82, wow: 1.24, src:"NYSE"  },
+  {id:"QQQ", cat:"equity",    name:"NASDAQ 100 ETF",    price:519.87,  dow: 1.14, wow: 1.76, src:"NYSE"  },
+  {id:"NVDA",cat:"equity",    name:"NVIDIA Corp",      price:135.80,  dow: 2.40, wow: 4.18, src:"NASDAQ"},
+  {id:"AAPL",cat:"equity",    name:"Apple Inc",        price:244.60,  dow:-0.31, wow:-0.94, src:"NASDAQ"},
+  {id:"MSFT",cat:"equity",    name:"Microsoft Corp",   price:415.52,  dow: 0.62, wow: 1.08, src:"NASDAQ"},
+  {id:"TSLA",cat:"equity",    name:"Tesla Inc",        price:335.40,  dow:-1.84, wow:-3.62, src:"NASDAQ"},
+  {id:"GC",  cat:"commodity", name:"Gold (COMEX)",     price:5121.00, dow: 0.80, wow: 2.18, src:"COMEX", unit:"/oz"   },
+  {id:"SI",  cat:"commodity", name:"Silver (COMEX)",   price:80.62,   dow: 2.14, wow: 4.92, src:"COMEX", unit:"/oz"   },
+  {id:"CL",  cat:"commodity", name:"WTI Crude (NYMEX)",price:66.37,   dow:-0.06, wow:-1.44, src:"NYMEX", unit:"/bbl"  },
+  {id:"NG",  cat:"commodity", name:"Nat Gas (HH)",     price:3.24,    dow:-3.20, wow:-8.64, src:"EIA",   unit:"/MMBtu"},
+  {id:"HG",  cat:"commodity", name:"Copper (COMEX)",   price:4.63,    dow: 0.28, wow: 1.32, src:"COMEX", unit:"/lb"   },
+  {id:"BTC", cat:"crypto",    name:"Bitcoin",          price:67920,   dow:-0.10, wow:-4.82, src:"SPOT"  },
+  {id:"ETH", cat:"crypto",    name:"Ethereum",         price:1978,    dow: 0.31, wow:-6.14, src:"SPOT"  },
+];
+
+// ── Seeded Asian Energy & Storage data (Feb 22 2026) ──
+const SEED_ENERGY = {
+  mogas92:  { price: 83.20,  unit:"/bbl",  chg:-0.48, src:"Platts APAG" },
+  hsfo380:  { price: 337.42, unit:"/mt",   chg:-0.18, src:"Platts APAG" },
+  vlsfo:    { price: 522.10, unit:"/mt",   chg: 0.22, src:"Platts APAG" },
+  dubai:    { price: 64.80,  unit:"/bbl",  chg: 0.31, src:"Platts APAG" },
+  jkm:      { price: 9.96,   unit:"/MMBtu",chg:-4.83, src:"Platts/CME"  },
+  ttf:      { price: 14.82,  unit:"/MMBtu",chg:-1.14, src:"ICE"         },
+  hh:       { price: 3.24,   unit:"/MMBtu",chg:-3.20, src:"EIA"         },
+  brent:    { price: 68.42,  unit:"/bbl",  chg: 0.12, src:"ICE"         },
+  // Crack spreads computed
+  mogasCrack: 18.40,  // MOGAS 92 vs Dubai $/bbl
+  hsfoCrack:  -9.80,  // HSFO 380 vs Brent (converted) $/bbl — negative = discount
+  vlsfoCrack: 12.60,  // VLSFO vs Brent $/bbl
+  jkmHhSpread: 6.72,  // JKM - HH $/MMBtu (arb)
+  jkmTtfSpread:-4.86, // JKM - TTF $/MMBtu
+  ttfHhSpread: 11.58, // TTF - HH $/MMBtu
+};
+
+// ── Seeded US NG Storage (EIA week ending Feb 13 2026) ──
+const SEED_US_STORAGE = {
+  week: "Feb 13, 2026",
+  releaseDate: "Feb 19, 2026",
+  draws: [
+    { w:"Jan 2",  draw:-100, inv:3420, avg5yr:3280 },
+    { w:"Jan 9",  draw:-127, inv:3293, avg5yr:3158 },
+    { w:"Jan 16", draw:-178, inv:3115, avg5yr:2996 },
+    { w:"Jan 23", draw:-242, inv:2873, avg5yr:2820 },
+    { w:"Jan 30", draw:-360, inv:2463, avg5yr:2610, note:"Record draw (Arctic blast)" },
+    { w:"Feb 6",  draw:-249, inv:2214, avg5yr:2450, note:"Winter Storm Fern" },
+    { w:"Feb 13", draw:-144, inv:2070, avg5yr:2290 },
+  ],
+  current: 2070,
+  avg5yr:  2290,
+  yearAgo: 2130,
+  pctVs5yr: -5.6,
+  pctVsYr:  -2.8,
+  endSeasonFcst: 1995,
+  nextRelease: "Feb 26, 2026",
+};
+
+// ── Seeded EU Gas Storage (GIE AGSI+, Feb 21 2026) ──
+const SEED_EU_STORAGE = {
+  date: "Feb 21, 2026",
+  overall: 50.2,
+  countries: [
+    { name:"Germany",    pct:48.1, twChange:-0.9 },
+    { name:"France",     pct:54.8, twChange:-0.6 },
+    { name:"Italy",      pct:46.2, twChange:-1.1 },
+    { name:"Netherlands",pct:51.4, twChange:-0.4 },
+    { name:"Austria",    pct:43.8, twChange:-1.3 },
+    { name:"Spain",      pct:62.1, twChange:-0.2 },
+    { name:"Belgium",    pct:48.6, twChange:-0.7 },
+    { name:"Poland",     pct:55.3, twChange:-0.5 },
+  ],
+  avg5yr: 56.4,
+  yearAgo: 62.8,
+  history: [
+    { m:"Aug '25",pct:91.2 }, { m:"Sep '25",pct:88.4 }, { m:"Oct '25",pct:83.1 },
+    { m:"Nov '25",pct:74.6 }, { m:"Dec '25",pct:63.2 }, { m:"Jan '26",pct:58.1 },
+    { m:"Feb '26",pct:50.2 },
+  ],
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// COT DATA
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const COT_WEEKS = ["Jan 13","Jan 20","Jan 27","Feb 3","Feb 10","Feb 17"];
+const COT = {
+  CL:{name:"WTI Crude",color:C.gold,cotIndex:78,
+    cats:["Commercial","Managed Money","Large Spec","Retail"],
+    catColors:[C.red,C.accent,C.purple,C.dim],
+    signal:"BULLISH",signalColor:C.green,
+    signif:"Managed money net long surged to a 6-month high of +264K contracts — two-sided bullish flow: fresh longs added (+14.2K) and shorts covered (-8.8K). High-conviction institutional repositioning driven by US-Iran geopolitical risk premium. Commercials remain heavily net-short (hedging production). Total OI +16K confirms trend continuation. Key tail risk: crowded long vulnerable to violent unwind if Geneva Iran nuclear talks succeed. EIA forecasts mean-reversion to $58/bbl Brent annual avg in 2026 as global supply surplus ~4Mb/d builds.",
+    weeks:[
+      {comm:{l:421,s:683},mm:{l:338,s:108},ls:{l:89,s:42},rt:{l:28,s:20},oi:1820},
+      {comm:{l:418,s:689},mm:{l:319,s:106},ls:{l:92,s:40},rt:{l:29,s:20},oi:1834},
+      {comm:{l:424,s:695},mm:{l:326,s:102},ls:{l:96,s:38},rt:{l:30,s:19},oi:1848},
+      {comm:{l:427,s:701},mm:{l:331,s:99}, ls:{l:99,s:37},rt:{l:31,s:19},oi:1861},
+      {comm:{l:430,s:712},mm:{l:338,s:96}, ls:{l:103,s:36},rt:{l:32,s:19},oi:1875},
+      {comm:{l:435,s:724},mm:{l:352,s:88}, ls:{l:108,s:34},rt:{l:33,s:18},oi:1891},
+    ]},
+  NG:{name:"Nat Gas",color:C.green,cotIndex:12,
+    cats:["Commercial","Managed Money","Large Spec","Retail"],
+    catColors:[C.red,C.accent,C.purple,C.dim],
+    signal:"BEARISH",signalColor:C.red,
+    signif:"Managed money is at its most bearish since Nov 2025 (-96.8K net). Post-Winter Storm Fern, Henry Hub normalised from $7.72 → $3.24/MMBtu. EIA raised full-year 2026 avg to $4.30 as production rebounds. Two-sided bearish: longs exiting (-7.3K) and new shorts added (+6.9K). Specs fighting the contango strip ($3.24→$3.94) — watch for short squeeze if cold snap or LNG export surge returns.",
+    weeks:[
+      {comm:{l:382,s:294},mm:{l:182,s:244},ls:{l:48,s:82},rt:{l:19,s:14},oi:1284},
+      {comm:{l:386,s:298},mm:{l:191,s:258},ls:{l:46,s:86},rt:{l:20,s:14},oi:1296},
+      {comm:{l:378,s:295},mm:{l:198,s:271},ls:{l:44,s:89},rt:{l:20,s:14},oi:1302},
+      {comm:{l:374,s:291},mm:{l:203,s:284},ls:{l:42,s:92},rt:{l:21,s:14},oi:1294},
+      {comm:{l:371,s:288},mm:{l:197,s:279},ls:{l:41,s:90},rt:{l:21,s:14},oi:1282},
+      {comm:{l:368,s:284},mm:{l:190,s:286},ls:{l:39,s:93},rt:{l:22,s:14},oi:1274},
+    ]},
+  GC:{name:"Gold",color:C.gold,cotIndex:38,
+    cats:["Commercial","Managed Money","Large Spec","Retail"],
+    catColors:[C.red,C.accent,C.purple,C.dim],
+    signal:"NEUTRAL → BULLISH",signalColor:C.gold,
+    signif:"Classic bull market structure: MM paring longs (-30K to 152K) while commercials extend structural shorts (+18K to -212K net). COT Index at 38th %ile implies significant room to rebuild longs. Gold reclaimed $5,000 on Feb 19 amid geopolitical risk premium. J.P. Morgan target $6,300/oz; Goldman sees 50bps Fed cuts in 2H26 as structural tailwind. Central bank buying ~755 tonnes expected in 2026.",
+    weeks:[
+      {comm:{l:92,s:290},mm:{l:182,s:28},ls:{l:62,s:16},rt:{l:14,s:9},oi:488},
+      {comm:{l:94,s:298},mm:{l:175,s:32},ls:{l:60,s:17},rt:{l:14,s:10},oi:492},
+      {comm:{l:96,s:312},mm:{l:168,s:38},ls:{l:58,s:18},rt:{l:14,s:10},oi:501},
+      {comm:{l:98,s:318},mm:{l:161,s:42},ls:{l:55,s:19},rt:{l:14,s:10},oi:494},
+      {comm:{l:97,s:312},mm:{l:156,s:46},ls:{l:54,s:20},rt:{l:14,s:10},oi:489},
+      {comm:{l:96,s:308},mm:{l:152,s:48},ls:{l:53,s:21},rt:{l:14,s:10},oi:486},
+    ]},
+  SI:{name:"Silver",color:"#94a3b8",cotIndex:72,
+    cats:["Commercial","Managed Money","Large Spec","Retail"],
+    catColors:[C.red,C.accent,C.purple,C.dim],
+    signal:"CROWDED LONG",signalColor:C.orange,
+    signif:"MM net long at +50K (COT Index 72nd %ile) — approaching crowded. Specs aggressively building longs (+14K over 6 weeks) on silver's dual monetary/industrial role. BloombergNEF flags 1Mt copper deficit in 2026 — silver benefits from same data-centre and EV demand theme. High COT index warrants caution on fresh longs; risk of sharp reversal if gold pauses.",
+    weeks:[
+      {comm:{l:38,s:98},mm:{l:54,s:18},ls:{l:18,s:7},rt:{l:8,s:7},oi:165},
+      {comm:{l:40,s:104},mm:{l:58,s:16},ls:{l:20,s:7},rt:{l:9,s:7},oi:175},
+      {comm:{l:42,s:110},mm:{l:62,s:14},ls:{l:22,s:7},rt:{l:9,s:7},oi:183},
+      {comm:{l:41,s:108},mm:{l:65,s:14},ls:{l:22,s:7},rt:{l:10,s:7},oi:179},
+      {comm:{l:40,s:104},mm:{l:67,s:15},ls:{l:22,s:8},rt:{l:10,s:7},oi:174},
+      {comm:{l:39,s:102},mm:{l:68,s:18},ls:{l:21,s:8},rt:{l:10,s:7},oi:172},
+    ]},
+  ES:{name:"S&P 500",color:C.accent,cotIndex:62,
+    cats:["Asset Mgr/Inst","Lev. Funds","Large Spec","Retail"],
+    catColors:[C.accent,C.red,C.purple,C.dim],
+    signal:"CONSTRUCTIVE",signalColor:C.green,
+    signif:"Asset managers gently adding (+24K to +732K net) — institutional equity allocation intact. Leveraged funds deepening net short (-310K) is index hedging, not directional bearishness. Rising OI (+32K) confirms trend. Goldman: constructive view, 50bps Fed cuts in 2H26, but warns 'hot valuations'. VIX at 15.6 with normal contango — no regime change.",
+    weeks:[
+      {comm:{l:948,s:218},mm:{l:298,s:612},ls:{l:92,s:78},rt:{l:52,s:42},oi:2842},
+      {comm:{l:956,s:222},mm:{l:288,s:624},ls:{l:90,s:80},rt:{l:51,s:43},oi:2848},
+      {comm:{l:962,s:228},mm:{l:278,s:638},ls:{l:88,s:82},rt:{l:50,s:44},oi:2852},
+      {comm:{l:958,s:232},mm:{l:284,s:628},ls:{l:90,s:80},rt:{l:51,s:43},oi:2844},
+      {comm:{l:964,s:236},mm:{l:292,s:618},ls:{l:92,s:78},rt:{l:52,s:42},oi:2858},
+      {comm:{l:972,s:240},mm:{l:302,s:608},ls:{l:94,s:76},rt:{l:53,s:41},oi:2874},
+    ]},
+  ZB:{name:"30Y T-Bond",color:C.orange,cotIndex:58,
+    cats:["Dealer/Intermed.","Asset Manager","Large Spec","Retail"],
+    catColors:[C.red,C.accent,C.purple,C.dim],
+    signal:"RATES ELEVATED",signalColor:C.orange,
+    signif:"Dealers deeply net-short (-239K, structural rate hedging). Asset managers are structural buyers (+194K net long — pension/insurance duration). Large specs flipping more short: conviction rates stay elevated long end. Key dynamic: short end easing (Fed cuts) + long end sticky (term premium) supports gold as duration alternative.",
+    weeks:[
+      {comm:{l:192,s:398},mm:{l:298,s:134},ls:{l:62,s:128},rt:{l:22,s:28},oi:1184},
+      {comm:{l:188,s:412},mm:{l:312,s:128},ls:{l:60,s:132},rt:{l:22,s:28},oi:1192},
+      {comm:{l:184,s:428},mm:{l:322,s:122},ls:{l:58,s:138},rt:{l:22,s:28},oi:1198},
+      {comm:{l:182,s:438},mm:{l:316,s:126},ls:{l:56,s:136},rt:{l:21,s:28},oi:1186},
+      {comm:{l:186,s:432},mm:{l:308,s:130},ls:{l:58,s:134},rt:{l:22,s:28},oi:1192},
+      {comm:{l:189,s:428},mm:{l:318,s:124},ls:{l:60,s:130},rt:{l:22,s:28},oi:1198},
+    ]},
+  "6E":{name:"Euro FX",color:C.teal,cotIndex:74,
+    cats:["Dealer/Corp","Managed Money","Large Spec","Retail"],
+    catColors:[C.red,C.accent,C.purple,C.dim],
+    signal:"USD BEARISH",signalColor:C.teal,
+    signif:"MM net long building steadily (+24K to +122K) — USD-bearish, EUR-bullish. COT Index at 74th %ile: approaching crowded. Macro supports direction: expected Fed cuts + ECB holding. Watch: Trump 10% global tariff announcement (Feb 21) could trigger USD strength and squeeze these longs rapidly.",
+    weeks:[
+      {comm:{l:148,s:258},mm:{l:132,s:42},ls:{l:62,s:24},rt:{l:22,s:30},oi:686},
+      {comm:{l:152,s:264},mm:{l:138,s:40},ls:{l:64,s:23},rt:{l:22,s:30},oi:694},
+      {comm:{l:148,s:268},mm:{l:144,s:38},ls:{l:66,s:22},rt:{l:22,s:30},oi:698},
+      {comm:{l:152,s:272},mm:{l:148,s:36},ls:{l:68,s:21},rt:{l:22,s:30},oi:706},
+      {comm:{l:156,s:276},mm:{l:152,s:35},ls:{l:70,s:21},rt:{l:22,s:30},oi:712},
+      {comm:{l:158,s:278},mm:{l:156,s:34},ls:{l:72,s:20},rt:{l:22,s:30},oi:718},
+    ]},
+};
+
+// VIX
+const VIX_DATA = [
+  {w:"Jan 13",d9:16.2,d30:17.8,m3:18.9,m6:20.1,vvix:108.4},
+  {w:"Jan 20",d9:22.8,d30:19.4,m3:18.1,m6:19.8,vvix:124.6},
+  {w:"Jan 27",d9:18.4,d30:18.2,m3:18.4,m6:19.6,vvix:112.8},
+  {w:"Feb 3", d9:15.8,d30:16.6,m3:17.8,m6:19.2,vvix:98.4},
+  {w:"Feb 10",d9:14.8,d30:16.2,m3:17.4,m6:18.8,vvix:96.2},
+  {w:"Feb 17",d9:13.8,d30:15.6,m3:17.2,m6:18.9,vvix:94.2},
+];
+const vixCurves = [
+  {label:"Jan 20 (spike)",color:"rgba(255,60,90,0.5)",  data:[22.8,19.4,18.1,19.8]},
+  {label:"Feb 3",         color:"rgba(255,255,255,0.2)", data:[15.8,16.6,17.8,19.2]},
+  {label:"Feb 17 (now)",  color:C.accent,                data:[13.8,15.6,17.2,18.9]},
+];
+const tenorData = ["VIX9D","VIX","VIX3M","VIX6M"].map((t,i)=>({
+  tenor:t, ...Object.fromEntries(vixCurves.map(w=>[w.label, w.data[i]]))
+}));
+
+// Macro news
+const NEWS = [
+  {tag:"OIL",tagColor:C.gold,source:"CNN Business",date:"Feb 19",
+   headline:"Oil jumps 4% and gold reclaims $5,000 as US-Iran tensions escalate",
+   body:"US crude rose 1.9% to $66.43/bbl after the US deployed a second carrier group to the Middle East. Iranian envoys failed to acknowledge Trump's 'red lines' in Geneva nuclear talks. BloombergNEF estimates full disruption of Iran's 3.3Mb/d output could erase the global supply surplus and spike Brent to $91/bbl.",
+   impact:"BULLISH OIL NEAR-TERM · BULLISH GOLD"},
+  {tag:"MACRO",tagColor:C.accent,source:"EIA STEO Feb 2026",date:"Feb 10",
+   headline:"EIA: Brent avg $58/bbl in 2026 — 4Mb/d global surplus building despite Jan spike",
+   body:"EIA Short-Term Energy Outlook projects global oil production to outpace demand, driving inventory builds averaging 3.1Mb/d in 2026. Brent averaged $67/bbl in Jan. US natgas production expected to grow 2% in 2H26 as Permian pipeline capacity expands. Henry Hub full-year avg raised to $4.30/MMBtu.",
+   impact:"BEARISH OIL MEDIUM-TERM · NEUTRAL-BULLISH NG 2026"},
+  {tag:"GOLD",tagColor:C.gold,source:"Reuters / J.P. Morgan",date:"Feb 19",
+   headline:"J.P. Morgan raises gold target to $6,300/oz; UBS sees $6,000–$7,200 upside scenario",
+   body:"Gold reclaimed $5,000 Feb 19. J.P. Morgan projects $5,055/oz in Q4 2026 on central bank demand (~755 tonnes) and ETF inflows (250+ tonnes). Reuters poll of 30 strategists: median $4,746. Goldman targets $5,400. UBS extreme upside $7,200 citing escalating geopolitical tensions.",
+   impact:"BULLISH GOLD · BULLISH SILVER"},
+  {tag:"MACRO",tagColor:C.accent,source:"Goldman Sachs",date:"Jan 2026",
+   headline:"Goldman: 50bps Fed cuts in 2026 base case; equities constructive but valuations elevated",
+   body:"Goldman maintains constructive equity view for 2026, forecasting lower index returns than 2025 amid a broadening bull market. Base case: 50bps of non-recessionary Fed cuts in 2H26. Warns 'hot valuations' as key volatility risk. US-China AI race and global energy supply waves are key commodity themes.",
+   impact:"MILD BULLISH SPX · BULLISH GOLD · SUPPORTIVE COPPER"},
+  {tag:"LNG",tagColor:C.teal,source:"BloombergNEF / EIA",date:"Feb 16",
+   headline:"Global oil glut looms; copper enters 1Mt deficit; JKM at $9.96 as Asian demand cools",
+   body:"BNEF 2026: US oil growth slows to 3% YoY as glut pressures prices. Copper demand enters 1Mt deficit — data centres and EVs driving demand. JKM has fallen 29% year-on-year to $9.96/MMBtu as European demand normalises and Asian mild weather reduces spot buying. TTF–HH spread wide at $11.58/MMBtu but narrowing.",
+   impact:"BEARISH OIL · BULLISH COPPER · WATCH JKM SEASONAL DEMAND"},
+  {tag:"CRYPTO",tagColor:C.purple,source:"CoinDesk",date:"Feb 21",
+   headline:"BTC consolidating at $67–68K; Google 'bitcoin zero' searches hit record US high",
+   body:"BTC has fallen 50%+ from Oct all-time high, consolidating around $67–68K. Google Trends 'bitcoin zero' searches hit 100/100 in US in Feb — similar spikes in 2021/2022 marked local bottoms. Bernstein maintains $150K year-end target, calling this a 'crisis of confidence, not fundamentals'.",
+   impact:"BEARISH SHORT-TERM · CONTRARIAN BULLISH MEDIUM-TERM"},
+  {tag:"NG",tagColor:C.green,source:"EIA",date:"Feb 19",
+   headline:"EIA: Record 360 Bcf draw week Jan 30; inventories now 5.6% below 5-year avg",
+   body:"US NG storage: -360 Bcf (week Jan 30, all-time record), -249 Bcf (Feb 6), -144 Bcf (Feb 13). Total: 2.070 Tcf — 5.6% below 5-year avg. End-of-season forecast: ~1.995 Tcf (Mar 31), 177 Bcf above 5-yr avg if withdrawal rates normalise. EIA raises 2026 avg to $4.30/MMBtu. AI/data centre electricity demand boosting structural requirements.",
+   impact:"NEUTRAL-BEARISH NEAR-TERM · BULLISH MEDIUM-TERM"},
+];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// UTILITIES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const fmt = (n, d=2) => n >= 10000 ? n.toLocaleString("en-US",{maximumFractionDigits:d}) : n.toFixed(d);
+const fmtK = n => {const a=Math.abs(n);if(a>=1e6)return`${(n/1e6).toFixed(2)}M`;if(a>=1e3)return`${(n/1e3).toFixed(1)}K`;return String(n);};
+const pct = n => `${n>=0?"+":""}${n.toFixed(2)}%`;
+const NET = w => w.l - w.s;
+const chgColor = n => n > 0 ? C.green : n < 0 ? C.red : C.muted;
+const genHist = (base,n=80,v=0.006) => {
+  const a=[]; let p=base*(0.96+Math.random()*0.04);
+  for(let i=0;i<n;i++){p=Math.max(p*(1+(Math.random()-0.49)*v),0.0001);a.push({t:i,p:+p.toFixed(base>=10000?1:base>=100?2:4)});}
+  return a;
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LIVE DATA FETCH via Claude API + web_search
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function fetchLiveEnergyData() {
+  const prompt = `Search for today's latest prices for these energy benchmarks and return ONLY a valid JSON object (no markdown, no backticks, no explanation):
+{
+  "date": "current date",
+  "mogas92": {"price": number, "chg": number_pct},
+  "hsfo380": {"price": number, "chg": number_pct},
+  "vlsfo": {"price": number, "chg": number_pct},
+  "dubai": {"price": number, "chg": number_pct},
+  "jkm": {"price": number, "chg": number_pct},
+  "ttf": {"price": number, "chg": number_pct},
+  "hh": {"price": number, "chg": number_pct},
+  "brent": {"price": number, "chg": number_pct},
+  "us_storage_bcf": number,
+  "us_storage_draw": number,
+  "us_storage_vs5yr_pct": number,
+  "eu_storage_pct": number,
+  "jkm_hh_spread": number,
+  "jkm_ttf_spread": number,
+  "ttf_hh_spread": number,
+  "mogas_crack": number,
+  "hsfo_crack": number
+}
+Search for: Singapore HSFO 380 price today, Singapore MOGAS 92 price today, JKM LNG price today, TTF natural gas price today, Henry Hub natural gas price today, Brent crude price today, EIA natural gas storage latest weekly report, EU gas storage percentage today GIE AGSI. Use the most recent data available. All prices in USD. chg is the 24hr % change.`;
+
+  const res = await fetch("/api/fetch-energy", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      model:"claude-sonnet-4-20250514",
+      max_tokens:1000,
+      tools:[{type:"web_search_20250305",name:"web_search"}],
+      messages:[{role:"user",content:prompt}]
+    })
+  });
+  const data = await res.json();
+  // Find text blocks (after tool use)
+  const textBlocks = data.content?.filter(b => b.type === "text") || [];
+  for (const block of textBlocks) {
+    try {
+      const cleaned = block.text.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed.jkm || parsed.hsfo380 || parsed.brent) return parsed;
+    } catch {}
+  }
+  return null;
+}
+
+async function fetchLiveStorageData() {
+  const prompt = `Search for the latest EIA weekly natural gas storage report and GIE EU gas storage data. Return ONLY this JSON (no markdown):
+{
+  "us_week": "week ending date",
+  "us_draw": number_bcf,
+  "us_total_tcf": number,
+  "us_vs5yr_pct": number,
+  "us_vs_yearago_pct": number,
+  "eu_overall_pct": number,
+  "eu_date": "date",
+  "eu_vs5yr_pct": number,
+  "source_confirmed": true
+}`;
+
+  const res = await fetch("/api/fetch-energy", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      model:"claude-sonnet-4-20250514",
+      max_tokens:600,
+      tools:[{type:"web_search_20250305",name:"web_search"}],
+      messages:[{role:"user",content:prompt}]
+    })
+  });
+  const data = await res.json();
+  const textBlocks = data.content?.filter(b => b.type === "text") || [];
+  for (const block of textBlocks) {
+    try {
+      const cleaned = block.text.replace(/```json|```/g,"").trim();
+      return JSON.parse(cleaned);
+    } catch {}
+  }
+  return null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BASE UI COMPONENTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const Panel = ({children, style={}}) => (
+  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"16px 18px",...style}}>{children}</div>
+);
+const PTitle = ({children}) => (
+  <div style={{fontFamily:MONO,fontSize:7.5,letterSpacing:2,color:C.muted,marginBottom:12,textTransform:"uppercase"}}>{children}</div>
+);
+const Divider = ({label}) => (
+  <div style={{display:"flex",alignItems:"center",gap:10,margin:"22px 0 14px"}}>
+    <div style={{width:3,height:14,background:C.accent,borderRadius:2}}/>
+    <span style={{fontFamily:MONO,fontSize:8.5,letterSpacing:2,color:C.accent,fontWeight:700}}>{label}</span>
+    <div style={{flex:1,height:1,background:C.border}}/>
+  </div>
+);
+const Badge = ({live}) => (
+  <span style={{fontFamily:MONO,fontSize:7,letterSpacing:1,padding:"2px 7px",borderRadius:2,
+    background:live?"rgba(0,217,126,0.12)":"rgba(255,255,255,0.04)",
+    color:live?C.green:C.dim,border:`1px solid ${live?"rgba(0,217,126,0.25)":"rgba(255,255,255,0.08)"}`}}>
+    {live?"● LIVE":"◌ SEEDED"}
+  </span>
+);
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LIVE CHART
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function LiveChart({asset, history}) {
+  const base = history[0]?.p || asset.price;
+  const latest = history[history.length-1]?.p || asset.price;
+  const up = latest >= base; const col = up ? C.green : C.red;
+  const id = `lc${asset.id}`;
+  const CT = ({active,payload}) => !active||!payload?.length?null:(
+    <div style={{background:"rgba(4,6,12,0.97)",border:`1px solid ${col}`,borderRadius:3,padding:"5px 10px",fontFamily:MONO,fontSize:10,color:C.text}}>
+      {fmt(payload[0].value, latest>=1000?1:2)}{asset.unit||""}
+    </div>
+  );
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontFamily:MONO,fontSize:14,fontWeight:700,color:CAT_COLOR[asset.cat]||C.accent}}>{asset.id}</span>
+            <span style={{fontFamily:SANS,fontSize:11,color:C.muted}}>{asset.name}</span>
+          </div>
+          <div style={{fontFamily:MONO,fontSize:8,color:C.dim,marginTop:2}}>{asset.src}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontFamily:MONO,fontSize:20,fontWeight:700,color:C.text,lineHeight:1}}>
+            {fmt(latest, latest>=10000?1:latest>=100?2:4)}
+            {asset.unit&&<span style={{fontSize:10,color:C.dim,marginLeft:2}}>{asset.unit}</span>}
+          </div>
+          <div style={{fontFamily:MONO,fontSize:10,color:col,marginTop:3}}>
+            {up?"▲":"▼"} {Math.abs(((latest-base)/base)*100).toFixed(2)}% session
+          </div>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={155}>
+        <AreaChart data={history} margin={{top:4,right:4,bottom:0,left:0}}>
+          <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={col} stopOpacity={0.18}/>
+            <stop offset="95%" stopColor={col} stopOpacity={0.01}/>
+          </linearGradient></defs>
+          <XAxis dataKey="t" hide/>
+          <YAxis domain={["auto","auto"]} width={56} tickFormatter={v=>fmt(v,v>=1000?0:2)}
+            tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+          <Tooltip content={<CT/>}/>
+          <Area type="monotone" dataKey="p" stroke={col} strokeWidth={2} fill={`url(#${id})`} dot={false} isAnimationActive={false}/>
+        </AreaChart>
+      </ResponsiveContainer>
+      <div style={{display:"flex",gap:18,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+        {[{l:"D-O-D",v:asset.dow},{l:"W-O-W",v:asset.wow}].map(s=>(
+          <div key={s.l}>
+            <div style={{fontFamily:MONO,fontSize:7,color:C.dim,marginBottom:2}}>{s.l}</div>
+            <div style={{fontFamily:MONO,fontSize:12,color:chgColor(s.v),fontWeight:600}}>{pct(s.v)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ASSET TABLE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function AssetTable({assets, selected, onSelect, prices}) {
+  const cats = ["equity","commodity","crypto"];
+  const catLabel = {equity:"EQUITIES", commodity:"COMMODITIES", crypto:"CRYPTO"};
+  const TH = ({children, r}) => (
+    <th style={{fontFamily:MONO,fontSize:7.5,letterSpacing:1.2,color:C.dim,padding:"6px 12px",
+      fontWeight:400,textAlign:r?"right":"left",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{children}</th>
+  );
+  const Bar = ({v, max=5}) => {
+    const w = Math.min(Math.abs(v)/max,1)*100; const col = v>=0?C.green:C.red;
+    return (
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{width:36,height:3,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden"}}>
+          <div style={{width:`${w}%`,height:"100%",background:col,borderRadius:2}}/>
+        </div>
+        <span style={{fontFamily:MONO,fontSize:9,color:col,minWidth:44}}>{v>=0?"+":""}{v.toFixed(2)}%</span>
+      </div>
+    );
+  };
+  return (
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr><TH>SYMBOL</TH><TH>NAME</TH><TH r>PRICE</TH><TH>D-O-D Δ</TH><TH>W-O-W Δ</TH><TH>SRC</TH></tr></thead>
+        <tbody>
+          {cats.map(cat=>{
+            const grp = assets.filter(a=>a.cat===cat);
+            const cc = CAT_COLOR[cat];
+            return [
+              <tr key={`h-${cat}`}><td colSpan={6} style={{padding:"10px 12px 4px",fontFamily:MONO,fontSize:7,letterSpacing:2,color:cc,borderBottom:`1px solid ${C.border}`}}>{catLabel[cat]}</td></tr>,
+              ...grp.map(a=>{
+                const lp = prices[a.id]||a.price; const isSel = selected?.id===a.id;
+                return (
+                  <tr key={a.id} onClick={()=>onSelect(a)}
+                    style={{cursor:"pointer",background:isSel?`rgba(0,200,255,0.04)`:"transparent",borderLeft:isSel?`2px solid ${cc}`:"2px solid transparent",transition:"background 0.12s"}}
+                    onMouseEnter={e=>{if(!isSel)e.currentTarget.style.background="rgba(255,255,255,0.02)";}}
+                    onMouseLeave={e=>{if(!isSel)e.currentTarget.style.background="transparent";}}>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`}}>
+                      <span style={{fontFamily:MONO,fontSize:10,fontWeight:700,color:isSel?cc:C.text}}>{a.id}</span>
+                    </td>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`}}>
+                      <span style={{fontFamily:SANS,fontSize:10,color:C.muted}}>{a.name}</span>
+                    </td>
+                    <td style={{padding:"8px 12px",textAlign:"right",borderBottom:`1px solid rgba(255,255,255,0.03)`}}>
+                      <span style={{fontFamily:MONO,fontSize:11,fontWeight:600,color:C.text}}>
+                        {fmt(lp,lp>=10000?1:lp>=100?2:4)}{a.unit&&<span style={{fontSize:7.5,color:C.dim,marginLeft:2}}>{a.unit}</span>}
+                      </span>
+                    </td>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`}}><Bar v={a.dow}/></td>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`}}><Bar v={a.wow} max={10}/></td>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`}}>
+                      <span style={{fontFamily:MONO,fontSize:7.5,color:C.dim}}>{a.src}</span>
+                    </td>
+                  </tr>
+                );
+              })
+            ];
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ASIAN ENERGY PRICES PANEL
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function AsianEnergyPrices({energy, isLive, onRefresh, loading}) {
+  const PriceRow = ({label, val, unit, chg, src}) => (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+      padding:"9px 12px",borderBottom:`1px solid rgba(255,255,255,0.04)`,
+      transition:"background 0.1s"}}
+      onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.015)"}
+      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <div>
+        <div style={{fontFamily:MONO,fontSize:10,fontWeight:600,color:C.text}}>{label}</div>
+        <div style={{fontFamily:MONO,fontSize:7.5,color:C.dim,marginTop:1}}>{src}</div>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontFamily:MONO,fontSize:13,fontWeight:700,color:C.text}}>
+          {fmt(val,2)}<span style={{fontSize:8.5,color:C.dim,marginLeft:3}}>{unit}</span>
+        </div>
+        <div style={{fontFamily:MONO,fontSize:9,color:chgColor(chg)}}>
+          {chg>=0?"▲":"▼"} {Math.abs(chg).toFixed(2)}%
+        </div>
+      </div>
+    </div>
+  );
+
+  const CrackRow = ({label, val, note}) => {
+    const col = val >= 0 ? C.green : C.red;
+    const absMax = 25;
+    const barPct = Math.min(Math.abs(val)/absMax, 1)*100;
+    return (
+      <div style={{padding:"7px 12px",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+          <span style={{fontFamily:MONO,fontSize:8.5,color:C.muted}}>{label}</span>
+          <span style={{fontFamily:MONO,fontSize:10,color:col,fontWeight:700}}>{val>=0?"+":""}{val.toFixed(2)} $/bbl</span>
+        </div>
+        <div style={{height:3,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden"}}>
+          <div style={{width:`${barPct}%`,height:"100%",background:col,borderRadius:2}}/>
+        </div>
+        {note&&<div style={{fontFamily:MONO,fontSize:7,color:C.dim,marginTop:2}}>{note}</div>}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+      {/* Physical prices */}
+      <Panel style={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontFamily:MONO,fontSize:7.5,letterSpacing:2,color:C.muted}}>ASIAN REFINED PRODUCTS</span>
+          <Badge live={isLive}/>
+        </div>
+        <PriceRow label="MOGAS 92 RON" val={energy.mogas92.price} unit="/bbl"   chg={energy.mogas92.chg}  src={energy.mogas92.src}/>
+        <PriceRow label="HSFO 380 CST"  val={energy.hsfo380.price} unit="/mt"    chg={energy.hsfo380.chg}  src={energy.hsfo380.src}/>
+        <PriceRow label="VLSFO 0.5%S"   val={energy.vlsfo.price}   unit="/mt"    chg={energy.vlsfo.chg}    src={energy.vlsfo.src}/>
+        <PriceRow label="Dubai Crude"   val={energy.dubai.price}   unit="/bbl"   chg={energy.dubai.chg}    src={energy.dubai.src}/>
+        <PriceRow label="Brent Crude"   val={energy.brent.price}   unit="/bbl"   chg={energy.brent.chg}    src={energy.brent.src}/>
+      </Panel>
+
+      {/* Gas benchmarks + LNG arb */}
+      <Panel style={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontFamily:MONO,fontSize:7.5,letterSpacing:2,color:C.muted}}>GAS BENCHMARKS & LNG ARB</span>
+          <Badge live={isLive}/>
+        </div>
+        <PriceRow label="JKM (DES Japan/Korea)"    val={energy.jkm.price}  unit="/MMBtu" chg={energy.jkm.chg}  src={energy.jkm.src}/>
+        <PriceRow label="TTF (Netherlands)"         val={energy.ttf.price}  unit="/MMBtu" chg={energy.ttf.chg}  src={energy.ttf.src}/>
+        <PriceRow label="Henry Hub (US)"            val={energy.hh.price}   unit="/MMBtu" chg={energy.hh.chg}   src={energy.hh.src}/>
+        <div style={{padding:"10px 12px 4px",fontFamily:MONO,fontSize:7,letterSpacing:2,color:C.dim,borderTop:`1px solid ${C.border}`}}>ARBITRAGE SPREADS</div>
+        {[
+          {l:"JKM − HH",  v:energy.jkmHhSpread,  note:"Atlantic→Pacific arb window"},
+          {l:"TTF − HH",  v:energy.ttfHhSpread,  note:"Europe→US gas premium"},
+          {l:"JKM − TTF", v:energy.jkmTtfSpread, note:"Asia vs Europe premium"},
+        ].map(r=>(
+          <div key={r.l} style={{padding:"7px 12px",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+              <span style={{fontFamily:MONO,fontSize:8.5,color:C.muted}}>{r.l}</span>
+              <span style={{fontFamily:MONO,fontSize:10,color:r.v>=0?C.green:C.red,fontWeight:700}}>{r.v>=0?"+":""}{r.v.toFixed(2)} $/MMBtu</span>
+            </div>
+            <div style={{fontFamily:MONO,fontSize:7,color:C.dim}}>{r.note}</div>
+          </div>
+        ))}
+      </Panel>
+
+      {/* Crack spreads */}
+      <Panel style={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontFamily:MONO,fontSize:7.5,letterSpacing:2,color:C.muted}}>CRACK SPREADS (vs DUBAI)</span>
+          <Badge live={isLive}/>
+        </div>
+        <CrackRow label="MOGAS 92 crack" val={energy.mogasCrack} note="Gasoline refining margin — Singapore FOB vs Dubai"/>
+        <CrackRow label="VLSFO crack"    val={energy.vlsfoCrack} note="Marine fuel 0.5%S margin vs Dubai crude"/>
+        <CrackRow label="HSFO crack"     val={energy.hsfoCrack}  note="380 CST fuel oil — discounted vs crude (neg = discount)"/>
+
+        <div style={{padding:"10px 12px 4px",fontFamily:MONO,fontSize:7,letterSpacing:2,color:C.dim,borderTop:`1px solid ${C.border}`}}>MARKET STRUCTURE</div>
+        <div style={{padding:"8px 12px"}}>
+          <div style={{fontFamily:SANS,fontSize:10.5,color:C.muted,lineHeight:1.7}}>
+            MOGAS crack at <span style={{color:C.gold,fontWeight:600}}>${energy.mogasCrack.toFixed(2)}/bbl</span> — 
+            healthy refining margin. HSFO at <span style={{color:energy.hsfoCrack<0?C.red:C.green,fontWeight:600}}>{energy.hsfoCrack.toFixed(2)}</span> — 
+            discounted vs crude reflecting weak bunker demand post-IMO 2020 fleet switch to VLSFO. JKM–HH spread 
+            of <span style={{color:C.teal,fontWeight:600}}>${energy.jkmHhSpread.toFixed(2)}/MMBtu</span> keeps 
+            US LNG exports to Asia highly profitable — supports elevated US natgas demand.
+          </div>
+        </div>
+
+        {/* Refresh button */}
+        <div style={{padding:"10px 12px",borderTop:`1px solid ${C.border}`}}>
+          <button onClick={onRefresh} disabled={loading} style={{
+            width:"100%",fontFamily:MONO,fontSize:8.5,letterSpacing:1.5,
+            padding:"7px 0",borderRadius:3,cursor:loading?"wait":"pointer",
+            background:loading?"rgba(255,255,255,0.02)":"rgba(0,200,255,0.06)",
+            border:`1px solid ${loading?"rgba(255,255,255,0.1)":C.accent}`,
+            color:loading?C.dim:C.accent,transition:"all 0.2s",
+          }}>
+            {loading ? "⟳  FETCHING LIVE DATA..." : "⟳  REFRESH LIVE PRICES"}
+          </button>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// US GAS STORAGE PANEL
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function USGasStorage({data, isLive}) {
+  const lastDraw = data.draws[data.draws.length-1];
+  const CT = ({active,payload,label:lb}) => !active||!payload?.length?null:(
+    <div style={{background:"rgba(4,6,12,0.97)",border:`1px solid ${C.border}`,borderRadius:3,padding:"6px 10px",fontFamily:MONO,fontSize:9,color:C.text}}>
+      <div style={{color:C.muted,marginBottom:3}}>{lb}</div>
+      {payload.map((p,i)=><div key={i} style={{color:p.color}}>{p.name}: {p.value > 100 ? fmtK(p.value)+" Bcf" : p.value+" Bcf"}</div>)}
+    </div>
+  );
+
+  // Surplus / deficit bar
+  const deficit = data.current - data.avg5yr;
+  const deficitPct = ((data.current - data.avg5yr) / data.avg5yr * 100).toFixed(1);
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 280px",gap:14}}>
+      <Panel>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <PTitle>US EIA WEEKLY NAT GAS STORAGE — WORKING GAS (BCF)</PTitle>
+          <Badge live={isLive}/>
+        </div>
+
+        {/* Inventory vs 5yr avg bar chart */}
+        <ResponsiveContainer width="100%" height={170}>
+          <ComposedChart data={data.draws} margin={{top:4,right:8,bottom:0,left:0}}>
+            <XAxis dataKey="w" tick={{fontFamily:MONO,fontSize:8,fill:C.muted}} axisLine={false} tickLine={false}/>
+            <YAxis yAxisId="inv" orientation="left" domain={[1800,3600]} width={48}
+              tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}
+              tickFormatter={v=>`${v}`}/>
+            <YAxis yAxisId="draw" orientation="right" domain={[-420,20]} width={40}
+              tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <Tooltip content={<CT/>}/>
+            <Bar yAxisId="draw" dataKey="draw" name="Weekly Draw (Bcf)" radius={[2,2,0,0]}>
+              {data.draws.map((d,i)=>(
+                <Cell key={i} fill={d.note?C.red:d.draw<-200?"rgba(255,60,90,0.6)":"rgba(255,60,90,0.35)"}/>
+              ))}
+            </Bar>
+            <Line yAxisId="inv" type="monotone" dataKey="inv"    name="Inventory (Bcf)" stroke={C.accent}  strokeWidth={2.5} dot={{r:3,fill:C.accent,stroke:C.bg,strokeWidth:1}} isAnimationActive={false}/>
+            <Line yAxisId="inv" type="monotone" dataKey="avg5yr" name="5-Yr Avg (Bcf)"  stroke="rgba(255,255,255,0.2)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} isAnimationActive={false}/>
+          </ComposedChart>
+        </ResponsiveContainer>
+
+        <div style={{display:"flex",gap:12,marginTop:8,flexWrap:"wrap"}}>
+          {[
+            {c:C.accent,            label:"Inventory",     dash:false},
+            {c:"rgba(255,255,255,0.3)", label:"5-Yr Average", dash:true},
+            {c:"rgba(255,60,90,0.6)",   label:"Weekly Draw",  dash:false},
+          ].map(l=>(
+            <div key={l.label} style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:14,height:2,background:l.c,borderRadius:1,borderTop:l.dash?"1px dashed transparent":undefined}}/>
+              <span style={{fontFamily:MONO,fontSize:7.5,color:C.muted}}>{l.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`,fontFamily:MONO,fontSize:7.5,letterSpacing:0.5,color:C.dim}}>
+          Source: EIA Weekly Natural Gas Storage Report · Released {data.releaseDate} · Next release: {data.nextRelease}
+        </div>
+      </Panel>
+
+      {/* Stats sidebar */}
+      <Panel>
+        <PTitle>STORAGE SNAPSHOT</PTitle>
+
+        {/* Surplus / deficit gauge */}
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            <span style={{fontFamily:MONO,fontSize:8,color:C.muted}}>DEFICIT vs 5-YR AVG</span>
+            <span style={{fontFamily:MONO,fontSize:10,color:deficit<0?C.red:C.green,fontWeight:700}}>
+              {deficit>=0?"+":""}{fmtK(deficit)} Bcf ({deficitPct}%)
+            </span>
+          </div>
+          <div style={{height:5,background:"rgba(255,255,255,0.07)",borderRadius:3,overflow:"hidden"}}>
+            <div style={{
+              width:`${Math.min(Math.abs(parseFloat(deficitPct))/15,1)*100}%`,
+              height:"100%",
+              background:deficit<0?C.red:C.green,
+              borderRadius:3,
+            }}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontFamily:MONO,fontSize:6.5,color:C.dim}}>
+            <span>-15%</span><span>0%</span><span>+15%</span>
+          </div>
+        </div>
+
+        {[
+          {l:"Current Inventory",     v:`${data.current} Bcf`,              c:C.text},
+          {l:"5-Year Average",        v:`${data.avg5yr} Bcf`,               c:C.muted},
+          {l:"Year-Ago Level",        v:`${data.yearAgo} Bcf`,              c:C.muted},
+          {l:"vs 5-Yr Avg",           v:`${data.pctVs5yr}%`,                c:data.pctVs5yr<0?C.red:C.green},
+          {l:"vs Year Ago",           v:`${data.pctVsYr}%`,                 c:data.pctVsYr<0?C.red:C.green},
+          {l:"Latest Draw (week)",    v:`-${Math.abs(lastDraw.draw)} Bcf`,  c:C.orange},
+          {l:"End-Season Forecast",   v:`~${data.endSeasonFcst} Bcf`,       c:C.accent},
+        ].map(r=>(
+          <div key={r.l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
+            <span style={{fontFamily:MONO,fontSize:8,color:C.muted}}>{r.l}</span>
+            <span style={{fontFamily:MONO,fontSize:8.5,color:r.c,fontWeight:600}}>{r.v}</span>
+          </div>
+        ))}
+
+        <div style={{marginTop:10,padding:"8px 10px",background:"rgba(255,60,90,0.04)",border:`1px solid rgba(255,60,90,0.15)`,borderRadius:3}}>
+          <div style={{fontFamily:MONO,fontSize:7,color:C.red,marginBottom:4,letterSpacing:1}}>NOTABLE DRAWS</div>
+          <div style={{fontFamily:SANS,fontSize:10.5,color:C.muted,lineHeight:1.65}}>
+            Jan 30: <span style={{color:C.red}}>-360 Bcf</span> (all-time record, Arctic blast)<br/>
+            Feb 6: <span style={{color:C.orange}}>-249 Bcf</span> (Winter Storm Fern lingering)<br/>
+            Feb 13: <span style={{color:C.gold}}>-144 Bcf</span> (normalising)
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EU GAS STORAGE PANEL
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function EUGasStorage({data, isLive}) {
+  const CT = ({active,payload,label:lb}) => !active||!payload?.length?null:(
+    <div style={{background:"rgba(4,6,12,0.97)",border:`1px solid ${C.border}`,borderRadius:3,padding:"6px 10px",fontFamily:MONO,fontSize:9,color:C.text}}>
+      <div style={{color:C.muted,marginBottom:2}}>{lb}</div>
+      {payload.map((p,i)=><div key={i} style={{color:p.color}}>{p.name}: {p.value.toFixed(1)}%</div>)}
+    </div>
+  );
+  const color = data.overall > 60 ? C.green : data.overall > 40 ? C.gold : C.red;
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"220px 1fr 1fr",gap:14}}>
+      {/* Overall gauge */}
+      <Panel>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <PTitle>EU STORAGE</PTitle>
+          <Badge live={isLive}/>
+        </div>
+        {/* Big gauge */}
+        <div style={{textAlign:"center",marginBottom:14}}>
+          <div style={{fontFamily:MONO,fontSize:36,fontWeight:700,color,lineHeight:1}}>{data.overall.toFixed(1)}</div>
+          <div style={{fontFamily:MONO,fontSize:10,color:C.muted}}>% FULL</div>
+          <div style={{fontFamily:MONO,fontSize:7.5,color:C.dim,marginTop:3}}>{data.date}</div>
+        </div>
+        <div style={{height:8,background:"rgba(255,255,255,0.07)",borderRadius:4,overflow:"hidden",marginBottom:10}}>
+          <div style={{width:`${data.overall}%`,height:"100%",background:`linear-gradient(90deg,${color}88,${color})`,borderRadius:4,boxShadow:`0 0 10px ${color}44`}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontFamily:MONO,fontSize:7,color:C.dim,marginBottom:12}}>
+          <span>0%</span><span>50%</span><span>100%</span>
+        </div>
+        {[
+          {l:"vs 5-Yr Avg", v:`${(data.overall-data.avg5yr).toFixed(1)}%`, c:(data.overall-data.avg5yr)>=0?C.green:C.red},
+          {l:"vs Year Ago", v:`${(data.overall-data.yearAgo).toFixed(1)}%`, c:(data.overall-data.yearAgo)>=0?C.green:C.red},
+          {l:"5-Yr Avg",    v:`${data.avg5yr}%`,  c:C.muted},
+          {l:"Year Ago",    v:`${data.yearAgo}%`, c:C.muted},
+        ].map(r=>(
+          <div key={r.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
+            <span style={{fontFamily:MONO,fontSize:8,color:C.dim}}>{r.l}</span>
+            <span style={{fontFamily:MONO,fontSize:8.5,color:r.c,fontWeight:600}}>{r.v}</span>
+          </div>
+        ))}
+        <div style={{fontFamily:MONO,fontSize:7,color:C.dim,marginTop:8,lineHeight:1.5}}>Source: GIE AGSI+</div>
+      </Panel>
+
+      {/* Country breakdown */}
+      <Panel>
+        <PTitle>BY COUNTRY (% FULL)</PTitle>
+        <div>
+          {data.countries.map(c=>(
+            <div key={c.name} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontFamily:MONO,fontSize:8.5,color:C.muted}}>{c.name}</span>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontFamily:MONO,fontSize:7.5,color:c.twChange<0?C.red:C.green}}>
+                    {c.twChange>=0?"+":""}{c.twChange}% WoW
+                  </span>
+                  <span style={{fontFamily:MONO,fontSize:9,fontWeight:700,
+                    color:c.pct>60?C.green:c.pct>45?C.gold:C.red,minWidth:36,textAlign:"right"}}>{c.pct.toFixed(1)}%</span>
+                </div>
+              </div>
+              <div style={{height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden"}}>
+                <div style={{
+                  width:`${c.pct}%`,height:"100%",borderRadius:2,
+                  background:c.pct>60?`linear-gradient(90deg,${C.green}88,${C.green})`:
+                             c.pct>45?`linear-gradient(90deg,${C.gold}88,${C.gold})`:
+                             `linear-gradient(90deg,${C.red}88,${C.red})`,
+                }}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      {/* Seasonal depletion chart */}
+      <Panel>
+        <PTitle>SEASONAL DEPLETION (AUG '25 → NOW)</PTitle>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={data.history} margin={{top:4,right:8,bottom:0,left:0}}>
+            <defs>
+              <linearGradient id="euStorGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={color} stopOpacity={0.25}/>
+                <stop offset="95%" stopColor={color} stopOpacity={0.02}/>
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="m" tick={{fontFamily:MONO,fontSize:8,fill:C.muted}} axisLine={false} tickLine={false}/>
+            <YAxis domain={[0,100]} width={30} tickFormatter={v=>`${v}%`}
+              tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <ReferenceLine y={data.avg5yr} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 3" label={{value:`5yr avg ${data.avg5yr}%`,position:"insideTopRight",fontFamily:MONO,fontSize:7,fill:C.dim}}/>
+            <Tooltip content={<CT/>}/>
+            <Area type="monotone" dataKey="pct" name="Storage %" stroke={color} strokeWidth={2.5} fill="url(#euStorGrad)" dot={{r:3,fill:color,stroke:C.bg,strokeWidth:1}} isAnimationActive={false}/>
+          </AreaChart>
+        </ResponsiveContainer>
+        <div style={{marginTop:10,fontFamily:SANS,fontSize:11,color:C.muted,lineHeight:1.7}}>
+          EU storage depleted from <span style={{color:C.green}}>91.2%</span> in Aug '25 to <span style={{color:color}}>{data.overall}%</span> now — 
+          {(data.overall - data.yearAgo).toFixed(1)}% below year-ago. Winter Storm Fern drove accelerated withdrawals 
+          across Germany and Italy. Warmer Feb forecast supporting gradual recovery. 
+          TTF–HH spread of <span style={{color:C.teal}}>$11.58/MMBtu</span> keeps US LNG export economics strong.
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// COT COMPONENTS (reused from original)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function FlowMatrix({mkt}) {
+  const cats = ["comm","mm","ls","rt"];
+  const curr = mkt.weeks[mkt.weeks.length-1], prev = mkt.weeks[mkt.weeks.length-2];
+  const dOI = curr.oi - prev.oi;
+  const maxC = Math.max(...cats.flatMap(c=>[Math.abs(curr[c].l-prev[c].l),Math.abs(curr[c].s-prev[c].s),1]));
+  const TH = ({children,r}) => (
+    <th style={{fontFamily:MONO,fontSize:7.5,letterSpacing:1,color:C.dim,padding:"6px 10px",fontWeight:400,textAlign:r?"right":"left",borderBottom:`1px solid ${C.border}`}}>{children}</th>
+  );
+  const cStyle = (val, isLong) => {
+    const bull = isLong?val>0:val<0;
+    const int = Math.min(Math.abs(val)/Math.max(maxC,1)*0.6,0.6);
+    return {background:bull?`rgba(0,217,126,${0.04+int})`:`rgba(255,60,90,${0.04+int})`,color:bull?C.green:C.red};
+  };
+  return (
+    <div>
+      <div style={{fontFamily:MONO,fontSize:7.5,color:C.dim,marginBottom:10,letterSpacing:1}}>
+        WEEK OF {COT_WEEKS[COT_WEEKS.length-1]}
+        <span style={{marginLeft:14,color:"rgba(255,255,255,0.18)"}}>▲LONG=buying  ▼LONG=liquidation  ▲SHORT=new shorts  ▼SHORT=covering</span>
+      </div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:9}}>
+        <thead><tr><TH>TRADER CATEGORY</TH><TH r>Δ GROSS LONG</TH><TH r>Δ GROSS SHORT</TH><TH r>Δ NET</TH><TH r>CURRENT NET</TH><TH r>GROSS LONG</TH><TH r>GROSS SHORT</TH></tr></thead>
+        <tbody>
+          {cats.map((ck,ci)=>{
+            const c=curr[ck],p=prev[ck],dL=c.l-p.l,dS=c.s-p.s,dN=NET(c)-NET(p),cn=NET(c);
+            const sL=cStyle(dL,true), sS=cStyle(dS,false);
+            return (
+              <tr key={ck} style={{borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
+                <td style={{padding:"8px 10px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:3,height:22,background:mkt.catColors[ci],borderRadius:2,flexShrink:0}}/>
+                    <div>
+                      <div style={{fontFamily:MONO,fontSize:9.5,color:C.text,fontWeight:600}}>{mkt.cats[ci]}</div>
+                      <div style={{fontFamily:MONO,fontSize:7,color:C.dim}}>{["Hedgers / structural","Directional / CTA / HF","Large non-commercial","Retail / small trader"][ci]}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style={{padding:"8px 10px",textAlign:"right",...sL}}><span style={{fontFamily:MONO,fontSize:9,fontWeight:600,color:sL.color}}>{dL>0?"▲":"▼"} {dL>=0?"+":""}{fmtK(dL*1000)}</span></td>
+                <td style={{padding:"8px 10px",textAlign:"right",...sS}}><span style={{fontFamily:MONO,fontSize:9,fontWeight:600,color:sS.color}}>{dS>0?"▲":"▼"} {dS>=0?"+":""}{fmtK(dS*1000)}</span></td>
+                <td style={{padding:"8px 10px",textAlign:"right",background:dN>=0?`rgba(0,217,126,0.06)`:`rgba(255,60,90,0.06)`}}>
+                  <span style={{fontFamily:MONO,fontSize:10,color:dN>=0?C.green:C.red,fontWeight:700}}>{dN>=0?"+":""}{fmtK(dN*1000)}</span>
+                </td>
+                <td style={{padding:"8px 10px",textAlign:"right"}}><span style={{fontFamily:MONO,fontSize:9.5,color:cn>=0?C.green:C.red,fontWeight:600}}>{cn>=0?"+":""}{fmtK(cn*1000)}</span></td>
+                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:MONO,fontSize:9,color:C.muted}}>{fmtK(c.l*1000)}</td>
+                <td style={{padding:"8px 10px",textAlign:"right",fontFamily:MONO,fontSize:9,color:C.muted}}>{fmtK(c.s*1000)}</td>
+              </tr>
+            );
+          })}
+          <tr style={{background:"rgba(255,255,255,0.02)",borderTop:`1px solid ${C.border}`}}>
+            <td style={{padding:"7px 10px",fontFamily:MONO,fontSize:8,color:C.dim,letterSpacing:1}}>TOTAL OPEN INTEREST</td>
+            <td colSpan={2} style={{padding:"7px 10px",fontFamily:MONO,fontSize:8,color:C.dim,textAlign:"right"}}>{fmtK(prev.oi*1000)} → {fmtK(curr.oi*1000)}</td>
+            <td style={{padding:"7px 10px",textAlign:"right",background:dOI>=0?`rgba(0,217,126,0.06)`:`rgba(255,60,90,0.06)`}}>
+              <span style={{fontFamily:MONO,fontSize:10,color:dOI>=0?C.green:C.red,fontWeight:700}}>{dOI>=0?"+":""}{fmtK(dOI*1000)}</span>
+            </td>
+            <td style={{padding:"7px 10px",textAlign:"right",fontFamily:MONO,fontSize:9,color:C.muted}}>{fmtK(curr.oi*1000)}</td>
+            <td colSpan={2}/>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function COTGauge({val}) {
+  const col = val>75?C.green:val>50?C.gold:val>25?C.orange:C.red;
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+        <span style={{fontFamily:MONO,fontSize:8,color:C.dim,letterSpacing:1}}>COT INDEX — 52-WEEK PERCENTILE (MM NET)</span>
+        <span style={{fontFamily:MONO,fontSize:11,color:col,fontWeight:700}}>{val}<span style={{fontSize:8,opacity:0.6}}>%ile</span></span>
+      </div>
+      <div style={{background:"rgba(255,255,255,0.07)",borderRadius:3,height:6,overflow:"hidden",position:"relative"}}>
+        <div style={{width:`${val}%`,height:"100%",background:`linear-gradient(90deg,rgba(0,217,126,0.4),${col})`,borderRadius:3,boxShadow:`0 0 8px ${col}55`}}/>
+        <div style={{position:"absolute",left:"20%",top:0,width:1,height:"100%",background:"rgba(255,255,255,0.15)"}}/>
+        <div style={{position:"absolute",left:"80%",top:0,width:1,height:"100%",background:"rgba(255,255,255,0.15)"}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+        {["0 — MAX SHORT","20 — CROWDED SHORT","80 — CROWDED LONG","100 — MAX LONG"].map(l=>(
+          <span key={l} style={{fontFamily:MONO,fontSize:6.5,color:C.dim}}>{l}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VIXSection() {
+  const latest = VIX_DATA[VIX_DATA.length-1];
+  const CT = ({active,payload,label:lb}) => !active||!payload?.length?null:(
+    <div style={{background:"rgba(4,6,12,0.97)",border:`1px solid ${C.border}`,borderRadius:3,padding:"5px 10px",fontFamily:MONO,fontSize:9,color:C.text}}>
+      <div style={{color:C.muted,marginBottom:2}}>{lb}</div>
+      {payload.map((p,i)=><div key={i} style={{color:p.color||"#fff"}}>{p.name}: {p.value?.toFixed(1)}</div>)}
+    </div>
+  );
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 180px",gap:14}}>
+      <Panel>
+        <PTitle>VIX TERM STRUCTURE — 3 SNAPSHOTS</PTitle>
+        <div style={{display:"flex",gap:12,marginBottom:8}}>
+          {vixCurves.map(w=>(
+            <div key={w.label} style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:14,height:2,background:w.color,borderRadius:2}}/>
+              <span style={{fontFamily:MONO,fontSize:7.5,color:C.dim}}>{w.label}</span>
+            </div>
+          ))}
+        </div>
+        <ResponsiveContainer width="100%" height={130}>
+          <LineChart data={tenorData} margin={{top:4,right:8,bottom:0,left:0}}>
+            <XAxis dataKey="tenor" tick={{fontFamily:MONO,fontSize:9,fill:C.muted}} axisLine={false} tickLine={false}/>
+            <YAxis domain={[10,26]} width={22} tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <Tooltip content={<CT/>}/>
+            {vixCurves.map(w=>(
+              <Line key={w.label} type="monotone" dataKey={w.label} name={w.label}
+                stroke={w.color} strokeWidth={w.label.includes("now")?2.5:1.5}
+                dot={{r:3,fill:w.color,stroke:C.bg,strokeWidth:1}} isAnimationActive={false}/>
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+        <div style={{marginTop:8,fontFamily:SANS,fontSize:11,color:C.muted,lineHeight:1.7}}>
+          Curve in normal contango — short-term calm (VIX9D 13.8). Jan 20 DeepSeek spike (22.8) rapidly absorbed — dip-buying regime.
+        </div>
+      </Panel>
+      <Panel>
+        <PTitle>VIX WEEKLY + VVIX (VOL OF VOL)</PTitle>
+        <ResponsiveContainer width="100%" height={90}>
+          <LineChart data={VIX_DATA} margin={{top:4,right:4,bottom:0,left:0}}>
+            <XAxis dataKey="w" tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <YAxis domain={[10,26]} width={22} tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <ReferenceLine y={20} stroke="rgba(255,60,90,0.2)" strokeDasharray="3 3"/>
+            <Tooltip content={<CT/>}/>
+            <Line type="monotone" dataKey="d9"  name="VIX9D" stroke="rgba(255,255,255,0.3)" strokeWidth={1.5} dot={false} strokeDasharray="3 2" isAnimationActive={false}/>
+            <Line type="monotone" dataKey="d30" name="VIX"   stroke={C.accent} strokeWidth={2} dot={{r:2.5,fill:C.accent}} isAnimationActive={false}/>
+            <Line type="monotone" dataKey="m3"  name="VIX3M" stroke="rgba(0,200,255,0.45)" strokeWidth={1.5} dot={false} strokeDasharray="4 2" isAnimationActive={false}/>
+          </LineChart>
+        </ResponsiveContainer>
+        <div style={{marginTop:8,fontFamily:MONO,fontSize:7.5,color:C.dim,marginBottom:4}}>VVIX — VOLATILITY OF VIX</div>
+        <ResponsiveContainer width="100%" height={55}>
+          <AreaChart data={VIX_DATA} margin={{top:2,right:4,bottom:0,left:0}}>
+            <defs><linearGradient id="vvg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="10%" stopColor={C.purple} stopOpacity={0.35}/>
+              <stop offset="95%" stopColor={C.purple} stopOpacity={0}/>
+            </linearGradient></defs>
+            <XAxis dataKey="w" tick={{fontFamily:MONO,fontSize:7.5,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <YAxis domain={[85,130]} width={22} tick={{fontFamily:MONO,fontSize:7.5,fill:C.dim}} axisLine={false} tickLine={false}/>
+            <ReferenceLine y={100} stroke="rgba(255,255,255,0.1)" strokeDasharray="3 3"/>
+            <Area type="monotone" dataKey="vvix" name="VVIX" stroke={C.purple} strokeWidth={2} fill="url(#vvg)" dot={{r:2.5,fill:C.purple}} isAnimationActive={false}/>
+          </AreaChart>
+        </ResponsiveContainer>
+      </Panel>
+      <Panel>
+        <PTitle>CURRENT READINGS</PTitle>
+        {[
+          {l:"VIX9D",v:latest.d9,   c:"rgba(255,255,255,0.6)",note:"9-day"},
+          {l:"VIX",  v:latest.d30,  c:C.accent,               note:"30-day"},
+          {l:"VIX3M",v:latest.m3,   c:"rgba(0,200,255,0.5)",  note:"90-day"},
+          {l:"VIX6M",v:latest.m6,   c:"rgba(0,200,255,0.3)",  note:"180-day"},
+          {l:"VVIX", v:latest.vvix, c:C.purple,               note:"vol-of-vol"},
+        ].map(r=>(
+          <div key={r.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
+            <div>
+              <div style={{fontFamily:MONO,fontSize:9,color:r.c,fontWeight:600}}>{r.l}</div>
+              <div style={{fontFamily:MONO,fontSize:7,color:C.dim}}>{r.note}</div>
+            </div>
+            <div style={{fontFamily:MONO,fontSize:13,color:r.c,fontWeight:700}}>{r.v.toFixed(1)}</div>
+          </div>
+        ))}
+        <div style={{marginTop:8,padding:"6px 8px",background:`rgba(0,200,255,0.04)`,border:`1px solid rgba(0,200,255,0.1)`,borderRadius:3,fontFamily:MONO,fontSize:7.5,color:C.muted,lineHeight:1.6}}>
+          VVIX 94.2 = stable vol regime. Calm spot, structured tail hedging at 3M+.
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function NewsCard({n}) {
+  const [open, setOpen] = useState(false);
+  const tagBg = {[C.gold]:"rgba(245,200,66,0.1)",[C.accent]:"rgba(0,200,255,0.1)",[C.orange]:"rgba(249,115,22,0.1)",[C.green]:"rgba(0,217,126,0.1)",[C.purple]:"rgba(167,139,250,0.1)",[C.teal]:"rgba(45,212,191,0.1)"};
+  return (
+    <div onClick={()=>setOpen(o=>!o)} style={{borderRadius:4,border:`1px solid ${open?n.tagColor:C.border}`,background:C.surface,padding:"12px 14px",cursor:"pointer",transition:"border-color 0.15s"}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor=n.tagColor}
+      onMouseLeave={e=>e.currentTarget.style.borderColor=open?n.tagColor:C.border}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontFamily:MONO,fontSize:7.5,fontWeight:700,color:n.tagColor,background:tagBg[n.tagColor]||"rgba(255,255,255,0.06)",padding:"2px 7px",borderRadius:2,letterSpacing:1}}>{n.tag}</span>
+            <span style={{fontFamily:MONO,fontSize:7.5,color:C.dim}}>{n.source}</span>
+            <span style={{fontFamily:MONO,fontSize:7.5,color:C.dim}}>· {n.date}</span>
+          </div>
+          <div style={{fontFamily:SANS,fontSize:12,fontWeight:600,color:C.text,lineHeight:1.45}}>{n.headline}</div>
+        </div>
+        <div style={{fontFamily:MONO,fontSize:10,color:C.dim,flexShrink:0}}>{open?"▲":"▼"}</div>
+      </div>
+      {open&&(
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+          <p style={{fontFamily:SANS,fontSize:11,color:C.muted,lineHeight:1.75,marginBottom:10}}>{n.body}</p>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontFamily:MONO,fontSize:7.5,color:C.dim,letterSpacing:1}}>IMPACT</span>
+            <span style={{fontFamily:MONO,fontSize:8,color:n.tagColor,fontWeight:600}}>{n.impact}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// APP ROOT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function App() {
+  const [prices,    setPrices]    = useState(()=>Object.fromEntries(ASSETS.map(a=>[a.id,a.price])));
+  const [hists,     setHists]     = useState(()=>Object.fromEntries(ASSETS.map(a=>[a.id,genHist(a.price)])));
+  const [sel,       setSel]       = useState(ASSETS[0]);
+  const [cotMkt,    setCotMkt]    = useState("CL");
+  const [clock,     setClock]     = useState(new Date());
+  const [nFilter,   setNFilter]   = useState("ALL");
+  const [energyTab, setEnergyTab] = useState("prices");
+
+  // Live energy data state
+  const [energy,    setEnergy]    = useState(SEED_ENERGY);
+  const [usStorage, setUsStorage] = useState(SEED_US_STORAGE);
+  const [euStorage, setEuStorage] = useState(SEED_EU_STORAGE);
+  const [energyLive,setEnergyLive]= useState(false);
+  const [storageLive,setStorageLive]=useState(false);
+  const [loadingE,  setLoadingE]  = useState(false);
+  const [loadingS,  setLoadingS]  = useState(false);
+  const [lastFetch, setLastFetch] = useState(null);
+  const [fetchError,setFetchError]= useState(null);
+
+  // Ticker simulation
+  const tick = useCallback(()=>{
+    setPrices(prev=>{const n={};ASSETS.forEach(a=>{const d=(Math.random()-0.492)*a.price*0.0012;n[a.id]=Math.max(+(prev[a.id]+d).toFixed(a.price>=10000?1:a.price>=100?2:4),0.0001);});return n;});
+    setHists(prev=>{const n={};ASSETS.forEach(a=>{const h=prev[a.id]||[];const last=h[h.length-1]?.p||a.price;const d=(Math.random()-0.49)*last*0.001;n[a.id]=[...h.slice(-119),{t:h.length,p:+Math.max(last+d,0.0001).toFixed(last>=10000?1:last>=100?2:4)}];});return n;});
+    setClock(new Date());
+  },[]);
+  useEffect(()=>{const id=setInterval(tick,1800);return()=>clearInterval(id);},[tick]);
+
+  // Fetch live energy prices
+  const handleFetchEnergy = async () => {
+    setLoadingE(true);
+    setFetchError(null);
+    try {
+      const data = await fetchLiveEnergyData();
+      if (data) {
+        setEnergy(prev => ({
+          mogas92:  { price: data.mogas92?.price || prev.mogas92.price,  chg: data.mogas92?.chg || prev.mogas92.chg,  src:"Platts APAG (live)" },
+          hsfo380:  { price: data.hsfo380?.price || prev.hsfo380.price,  chg: data.hsfo380?.chg || prev.hsfo380.chg,  src:"Platts APAG (live)" },
+          vlsfo:    { price: data.vlsfo?.price   || prev.vlsfo.price,    chg: data.vlsfo?.chg   || prev.vlsfo.chg,    src:"Platts APAG (live)" },
+          dubai:    { price: data.dubai?.price   || prev.dubai.price,    chg: data.dubai?.chg   || prev.dubai.chg,    src:"Platts (live)"      },
+          jkm:      { price: data.jkm?.price     || prev.jkm.price,      chg: data.jkm?.chg     || prev.jkm.chg,      src:"Platts/CME (live)"  },
+          ttf:      { price: data.ttf?.price     || prev.ttf.price,      chg: data.ttf?.chg     || prev.ttf.chg,      src:"ICE (live)"         },
+          hh:       { price: data.hh?.price      || prev.hh.price,       chg: data.hh?.chg      || prev.hh.chg,       src:"EIA (live)"         },
+          brent:    { price: data.brent?.price   || prev.brent.price,    chg: data.brent?.chg   || prev.brent.chg,    src:"ICE (live)"         },
+          mogasCrack: data.mogas_crack  || (data.mogas92?.price||prev.mogas92.price) - (data.dubai?.price||prev.dubai.price),
+          hsfoCrack:  data.hsfo_crack   || prev.hsfoCrack,
+          vlsfoCrack: prev.vlsfoCrack,
+          jkmHhSpread: data.jkm_hh_spread || (data.jkm?.price||prev.jkm.price) - (data.hh?.price||prev.hh.price),
+          jkmTtfSpread: data.jkm_ttf_spread || (data.jkm?.price||prev.jkm.price) - (data.ttf?.price||prev.ttf.price),
+          ttfHhSpread: data.ttf_hh_spread || (data.ttf?.price||prev.ttf.price) - (data.hh?.price||prev.hh.price),
+        }));
+        setEnergyLive(true);
+        setLastFetch(new Date());
+
+        // Update storage if returned
+        if (data.us_storage_bcf) {
+          setUsStorage(prev=>({...prev,
+            current: data.us_storage_bcf,
+            pctVs5yr: data.us_storage_vs5yr_pct || prev.pctVs5yr,
+          }));
+          setStorageLive(true);
+        }
+        if (data.eu_storage_pct) {
+          setEuStorage(prev=>({...prev, overall: data.eu_storage_pct}));
+        }
+      } else {
+        setFetchError("Response parsed but no price data found — showing seeded values");
+      }
+    } catch(e) {
+      setFetchError(`Fetch error: ${e.message} — showing seeded values`);
+    }
+    setLoadingE(false);
+  };
+
+  const mkt = COT[cotMkt];
+  const curr = mkt.weeks[mkt.weeks.length-1];
+  const prev = mkt.weeks[mkt.weeks.length-2];
+  const histData = COT_WEEKS.map((w,i)=>({w, comm:NET(mkt.weeks[i].comm), mm:NET(mkt.weeks[i].mm), ls:NET(mkt.weeks[i].ls), rt:NET(mkt.weeks[i].rt)}));
+  const allTags = ["ALL",...new Set(NEWS.map(n=>n.tag))];
+  const filteredNews = nFilter==="ALL" ? NEWS : NEWS.filter(n=>n.tag===nFilter);
+
+  const CTHist = ({active,payload,label:lb}) => !active||!payload?.length?null:(
+    <div style={{background:"rgba(4,6,12,0.97)",border:`1px solid ${C.border}`,borderRadius:3,padding:"5px 10px",fontFamily:MONO,fontSize:9,color:C.text}}>
+      <div style={{color:C.muted,marginBottom:2}}>{lb}</div>
+      {payload.map((p,i)=><div key={i} style={{color:p.color}}>{p.name}: {p.value>=0?"+":""}{fmtK(p.value*1000)}</div>)}
+    </div>
+  );
+
+  const energyTabs = [
+    {id:"prices",  label:"ASIAN PRICES & CRACKS"},
+    {id:"usgas",   label:"US GAS STORAGE (EIA)"},
+    {id:"eugas",   label:"EU GAS STORAGE (GIE)"},
+  ];
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600;700&family=Inter:wght@400;500;600&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{background:${C.bg};}
+        ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px;}
+        @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+        @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+      `}</style>
+      <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:SANS,padding:"16px 20px"}}>
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",backgroundImage:`linear-gradient(rgba(255,255,255,0.008) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.008) 1px,transparent 1px)`,backgroundSize:"48px 48px",zIndex:0}}/>
+        <div style={{position:"relative",zIndex:1,maxWidth:1520,margin:"0 auto"}}>
+
+          {/* HEADER */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:C.green,animation:"blink 2s ease-in-out infinite",boxShadow:`0 0 6px ${C.green}`}}/>
+              <div>
+                <h1 style={{fontFamily:MONO,fontSize:16,fontWeight:700,letterSpacing:2,background:`linear-gradient(90deg,${C.accent},${C.green})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ALPHA TERMINAL</h1>
+                <div style={{fontFamily:MONO,fontSize:7,letterSpacing:2.5,color:C.dim,marginTop:1}}>EQUITIES · COMMODITIES · CRYPTO · COT FLOWS · ASIAN ENERGY · GAS STORAGE · MACRO</div>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:14}}>
+              {lastFetch && (
+                <div style={{fontFamily:MONO,fontSize:7.5,color:C.green,textAlign:"right"}}>
+                  <div>● LIVE DATA FETCHED</div>
+                  <div style={{color:C.dim}}>{lastFetch.toLocaleTimeString("en-US",{hour12:false})}</div>
+                </div>
+              )}
+              <div style={{textAlign:"right"}}>
+                <div style={{fontFamily:MONO,fontSize:13,color:C.accent}}>{clock.toLocaleTimeString("en-US",{hour12:false})}</div>
+                <div style={{fontFamily:MONO,fontSize:8,color:C.dim,marginTop:2}}>{clock.toLocaleDateString("en-US",{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ERROR BANNER */}
+          {fetchError && (
+            <div style={{marginBottom:10,padding:"8px 14px",background:"rgba(255,60,90,0.06)",border:`1px solid rgba(255,60,90,0.2)`,borderRadius:4,fontFamily:MONO,fontSize:8,color:C.red}}>
+              ⚠ {fetchError}
+            </div>
+          )}
+
+          {/* TICKER */}
+          <div style={{overflow:"hidden",borderBottom:`1px solid ${C.border}`,paddingBottom:8,marginBottom:16}}>
+            <div style={{display:"inline-block",animation:"ticker 50s linear infinite",whiteSpace:"nowrap"}}>
+              {[...ASSETS,...ASSETS].map((a,i)=>(
+                <span key={i} style={{marginRight:22,fontFamily:MONO,fontSize:10}}>
+                  <span style={{color:CAT_COLOR[a.cat]||C.accent}}>{a.id}</span>{" "}
+                  <span style={{color:C.text}}>{fmt(prices[a.id]||a.price,a.price>=10000?1:a.price>=100?2:4)}</span>{" "}
+                  <span style={{color:chgColor(a.dow)}}>{pct(a.dow)}</span>
+                </span>
+              ))}
+              {/* Add energy to ticker */}
+              {["JKM","HSFO","MOGAS","TTF"].map((k,i)=>{
+                const vals = [energy.jkm, energy.hsfo380, energy.mogas92, energy.ttf];
+                const v = vals[i];
+                return (
+                  <span key={`e${k}`} style={{marginRight:22,fontFamily:MONO,fontSize:10}}>
+                    <span style={{color:C.teal}}>{k}</span>{" "}
+                    <span style={{color:C.text}}>{fmt(v.price,2)}{v.unit}</span>{" "}
+                    <span style={{color:chgColor(v.chg)}}>{pct(v.chg)}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── SECTION 1: MARKET PRICES ── */}
+          <Divider label="MARKET PRICES"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 360px",gap:14}}>
+            <Panel>
+              <PTitle>ALL ASSETS — CLICK ROW TO VIEW LIVE CHART</PTitle>
+              <AssetTable assets={ASSETS} selected={sel} onSelect={setSel} prices={prices}/>
+            </Panel>
+            <Panel>
+              <PTitle>LIVE CHART — {sel.id}</PTitle>
+              <LiveChart asset={sel} history={hists[sel.id]||[]}/>
+            </Panel>
+          </div>
+
+          {/* ── SECTION 2: ASIAN ENERGY INTELLIGENCE ── */}
+          <Divider label="ASIAN ENERGY INTELLIGENCE"/>
+
+          {/* Sub-tabs */}
+          <div style={{display:"flex",gap:0,marginBottom:14,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",width:"fit-content"}}>
+            {energyTabs.map(t=>(
+              <button key={t.id} onClick={()=>setEnergyTab(t.id)} style={{
+                fontFamily:MONO,fontSize:8,letterSpacing:1.5,padding:"7px 18px",
+                background:energyTab===t.id?"rgba(0,200,255,0.08)":"transparent",
+                border:"none",borderRight:`1px solid ${C.border}`,
+                color:energyTab===t.id?C.accent:C.muted,
+                cursor:"pointer",transition:"all 0.14s",fontWeight:energyTab===t.id?700:400,
+              }}>{t.label}</button>
+            ))}
+          </div>
+
+          {energyTab==="prices" && (
+            <AsianEnergyPrices energy={energy} isLive={energyLive} onRefresh={handleFetchEnergy} loading={loadingE}/>
+          )}
+          {energyTab==="usgas" && (
+            <USGasStorage data={usStorage} isLive={storageLive}/>
+          )}
+          {energyTab==="eugas" && (
+            <EUGasStorage data={euStorage} isLive={storageLive}/>
+          )}
+
+          {/* Refresh bar below all energy tabs */}
+          {energyTab !== "prices" && (
+            <div style={{marginTop:12,display:"flex",alignItems:"center",gap:12}}>
+              <button onClick={handleFetchEnergy} disabled={loadingE} style={{
+                fontFamily:MONO,fontSize:8.5,letterSpacing:1.5,padding:"7px 20px",borderRadius:3,
+                cursor:loadingE?"wait":"pointer",
+                background:loadingE?"rgba(255,255,255,0.02)":"rgba(0,200,255,0.06)",
+                border:`1px solid ${loadingE?"rgba(255,255,255,0.1)":C.accent}`,
+                color:loadingE?C.dim:C.accent,transition:"all 0.2s",
+              }}>
+                {loadingE ? "⟳  FETCHING LIVE DATA..." : "⟳  REFRESH ALL ENERGY + STORAGE DATA"}
+              </button>
+              <span style={{fontFamily:MONO,fontSize:7.5,color:C.dim}}>
+                Uses Claude AI web search to pull EIA storage, GIE EU storage, JKM, HSFO, TTF · free public sources
+              </span>
+            </div>
+          )}
+
+          {/* ── SECTION 3: FUTURES FLOW ── */}
+          <Divider label="FUTURES FLOW & VOLATILITY STRUCTURE"/>
+
+          <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+            {Object.keys(COT).map(k=>{
+              const m=COT[k]; const isSel=cotMkt===k;
+              return (
+                <button key={k} onClick={()=>setCotMkt(k)} style={{fontFamily:MONO,fontSize:8.5,letterSpacing:1,padding:"4px 14px",borderRadius:3,border:isSel?`1px solid ${m.color}`:`1px solid ${C.border}`,cursor:"pointer",background:isSel?`rgba(255,255,255,0.04)`:"transparent",color:isSel?m.color:C.muted,fontWeight:isSel?700:400,transition:"all 0.14s"}}>
+                  {k} · {m.name}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:12}}>
+            {[
+              {l:"COT INDEX",v:`${mkt.cotIndex}th %ile`,c:mkt.cotIndex>70?C.green:mkt.cotIndex>40?C.gold:C.red,sub:"MM net vs 52-week range"},
+              {l:"SIGNAL",   v:mkt.signal,              c:mkt.signalColor,sub:"quant desk view"},
+              {l:"MM Δ NET", v:`${NET(curr.mm)-NET(prev.mm)>=0?"+":""}${fmtK((NET(curr.mm)-NET(prev.mm))*1000)}`,c:(NET(curr.mm)-NET(prev.mm))>=0?C.green:C.red,sub:"managed money WoW"},
+              {l:"OI CHANGE",v:`${(curr.oi-prev.oi)>=0?"+":""}${fmtK((curr.oi-prev.oi)*1000)}`,c:(curr.oi-prev.oi)>=0?C.green:C.red,sub:"total open interest WoW"},
+            ].map(k=>(
+              <Panel key={k.l}>
+                <div style={{fontFamily:MONO,fontSize:7.5,letterSpacing:1.5,color:C.muted,marginBottom:6}}>{k.l}</div>
+                <div style={{fontFamily:MONO,fontSize:17,fontWeight:700,color:k.c,lineHeight:1}}>{k.v}</div>
+                <div style={{fontFamily:MONO,fontSize:7.5,color:C.dim,marginTop:4}}>{k.sub}</div>
+              </Panel>
+            ))}
+          </div>
+
+          <Panel style={{marginBottom:12}}><COTGauge val={mkt.cotIndex}/></Panel>
+
+          <Panel style={{marginBottom:12}}>
+            <PTitle>POSITION CHANGE — ALL 4 TRADER CATEGORIES</PTitle>
+            <FlowMatrix mkt={mkt}/>
+          </Panel>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:14,marginBottom:12}}>
+            <Panel>
+              <PTitle>6-WEEK HISTORICAL NET POSITION — ALL CATEGORIES</PTitle>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={histData} margin={{top:4,right:8,bottom:0,left:0}}>
+                  <XAxis dataKey="w" tick={{fontFamily:MONO,fontSize:8.5,fill:C.muted}} axisLine={false} tickLine={false}/>
+                  <YAxis tickFormatter={v=>fmtK(v*1000)} width={52} tick={{fontFamily:MONO,fontSize:8,fill:C.dim}} axisLine={false} tickLine={false}/>
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" strokeDasharray="3 3"/>
+                  <Tooltip content={<CTHist/>}/>
+                  {["comm","mm","ls","rt"].map((ck,ci)=>(
+                    <Line key={ck} type="monotone" dataKey={ck} name={mkt.cats[ci]}
+                      stroke={mkt.catColors[ci]} strokeWidth={ci<2?2:1.5}
+                      dot={{r:3,fill:mkt.catColors[ci],stroke:C.bg,strokeWidth:1}}
+                      strokeDasharray={ci===2?"4 2":ci===3?"2 2":""} isAnimationActive={false}/>
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+              <div style={{display:"flex",gap:16,marginTop:10,flexWrap:"wrap"}}>
+                {["comm","mm","ls","rt"].map((ck,ci)=>{
+                  const nv=NET(curr[ck]);
+                  return (
+                    <div key={ck} style={{display:"flex",alignItems:"center",gap:5}}>
+                      <div style={{width:12,height:2,background:mkt.catColors[ci],borderRadius:1}}/>
+                      <span style={{fontFamily:MONO,fontSize:7.5,color:C.muted}}>{mkt.cats[ci]}</span>
+                      <span style={{fontFamily:MONO,fontSize:7.5,color:nv>=0?C.green:C.red}}>({nv>=0?"+":""}{fmtK(nv*1000)})</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Panel>
+            <Panel>
+              <PTitle>QUANT DESK ANALYSIS — {mkt.name}</PTitle>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <span style={{fontFamily:MONO,fontSize:9,fontWeight:700,color:mkt.signalColor,padding:"3px 10px",borderRadius:2,border:`1px solid ${mkt.signalColor}`,letterSpacing:1}}>{mkt.signal}</span>
+                <span style={{fontFamily:MONO,fontSize:8,color:C.dim}}>as of {COT_WEEKS[COT_WEEKS.length-1]}</span>
+              </div>
+              <p style={{fontFamily:SANS,fontSize:11,color:C.muted,lineHeight:1.75}}>{mkt.signif}</p>
+              <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                <div style={{fontFamily:MONO,fontSize:7.5,color:C.dim,marginBottom:8,letterSpacing:1}}>NET SNAPSHOT</div>
+                {["comm","mm","ls","rt"].map((ck,ci)=>{
+                  const nv=NET(curr[ck]);
+                  const maxV=Math.max(...["comm","mm","ls","rt"].map(k=>Math.abs(NET(curr[k]))));
+                  return (
+                    <div key={ck} style={{marginBottom:5}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                        <span style={{fontFamily:MONO,fontSize:8,color:C.muted}}>{mkt.cats[ci]}</span>
+                        <span style={{fontFamily:MONO,fontSize:8,color:nv>=0?C.green:C.red}}>{nv>=0?"+":""}{fmtK(nv*1000)}</span>
+                      </div>
+                      <div style={{height:3,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden"}}>
+                        <div style={{width:`${Math.min(Math.abs(nv)/Math.max(maxV,1),1)*100}%`,height:"100%",background:nv>=0?C.green:C.red,borderRadius:2}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Panel>
+          </div>
+
+          <Panel style={{marginBottom:12}}>
+            <PTitle>CBOE VOLATILITY STRUCTURE · SOURCE: CBOE</PTitle>
+            <VIXSection/>
+          </Panel>
+
+          {/* ── SECTION 4: MACRO ── */}
+          <Divider label="MACRO & FUNDAMENTALS"/>
+          <div style={{fontFamily:MONO,fontSize:7.5,color:C.dim,marginBottom:10}}>
+            Sources: CNN Business · EIA STEO Feb 2026 · J.P. Morgan · Goldman Sachs · BloombergNEF · Reuters · CoinDesk · UBS CIO · GIE AGSI+
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+            {allTags.map(t=>(
+              <button key={t} onClick={()=>setNFilter(t)} style={{fontFamily:MONO,fontSize:8,letterSpacing:1,padding:"3px 12px",borderRadius:2,border:"none",cursor:"pointer",background:nFilter===t?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.03)",color:nFilter===t?C.text:C.dim,transition:"all 0.12s"}}>{t}</button>
+            ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {filteredNews.map((n,i)=><NewsCard key={i} n={n}/>)}
+          </div>
+
+          {/* FOOTER */}
+          <div style={{marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`,fontFamily:MONO,fontSize:7,color:C.dim,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
+            <span>ALPHA TERMINAL · PRICES SEEDED FEB 22 2026 · SIMULATED TICKS · LIVE REFRESH VIA CLAUDE AI WEB SEARCH · NOT FINANCIAL ADVICE</span>
+            <span>COT: CFTC · VIX: CBOE · ENERGY: PLATTS/ICE/EIA · STORAGE: EIA WNGSR + GIE AGSI+ · NEWS: BLOOMBERG/REUTERS/EIA/CNN</span>
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App/>);
+  </script>
+</body>
+</html>
